@@ -1,0 +1,7 @@
+{
+  "name": "fam.ly",
+  "description": "A fun, interactive family calendar with a smart AI assistant to help manage your family's schedule.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
