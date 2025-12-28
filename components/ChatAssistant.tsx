@@ -3,7 +3,8 @@ import React, { useState, useRef, useEffect } from 'react';
 import { X, Send, Sparkles, Mic, MicOff, Volume2, VolumeX, Play, Square } from 'lucide-react';
 import { CalendarEvent, FamilyMember, ChatMessage, ThemeColor, EventCategory } from '../types';
 import { generateCalendarAdvice, addEventTool, updateEventTool, deleteEventTool } from '../services/geminiService';
-import { GoogleGenAI, LiveServerMessage, Modality } from '@google/genai';
+// Live session feature disabled - using serverless function instead
+// import { GoogleGenAI, LiveServerMessage, Modality } from '@google/genai';
 import { generateId, mapNamesToIds } from '../utils';
 
 // --- Audio Utility Functions (As per Gemini Live API Guidelines) ---
@@ -104,6 +105,11 @@ const ChatAssistant: React.FC<ChatAssistantProps> = ({
   }, [isOpen]);
 
   const startLiveSession = async () => {
+    // Live session feature disabled - API keys must be kept server-side
+    alert('Live voice session is currently disabled. Please use text input instead.');
+    return;
+    
+    /* DISABLED - API keys must be server-side
     try {
       setIsLive(true);
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });

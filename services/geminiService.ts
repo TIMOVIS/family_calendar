@@ -1,9 +1,7 @@
 
-import { GoogleGenAI, FunctionDeclaration, Type } from "@google/genai";
+import { FunctionDeclaration, Type } from "@google/genai";
 import { CalendarEvent, FamilyMember, ChatResponse, EventCategory } from "../types";
 import { generateId, mapNamesToIds } from "../utils";
-
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 // --- Tool Definitions ---
 
@@ -70,105 +68,106 @@ export const generateCalendarAdvice = async (
   members: FamilyMember[]
 ): Promise<ChatResponse> => {
   try {
-    const eventsContext = events.map(e => ({
+    const eventsData = events.map(e => ({
       id: e.id,
       title: e.title,
-      start: e.start.toLocaleString(),
-      end: e.end.toLocaleString(),
+      start: e.start instanceof Date ? e.start.toISOString() : e.start,
+      end: e.end instanceof Date ? e.end.toISOString() : e.end,
       category: e.category,
       location: e.location,
-      attendees: e.memberIds.map(mid => members.find(m => m.id === mid)?.name || mid).join(', ')
+      memberIds: e.memberIds
     }));
 
-    const systemPrompt = `
-      You are fam.ly, a family calendar assistant.
-      Current Date/Time: ${new Date().toLocaleString()}
-      
-      Family Members: ${members.map(m => m.name).join(', ')}
-
-      Current Schedule:
-      ${JSON.stringify(eventsContext, null, 2)}
-      
-      Capabilities:
-      1. Answer questions about the schedule.
-      2. Handle specific search queries like "When is Mia's practice?" or "What's happening on Monday?".
-      3. Identify events by attendee names, times (e.g., "at 10am"), or dates.
-      4. ADD, EDIT, or DELETE events using the provided tools.
-      
-      Rules:
-      - If adding an event, infer the end time (1 hour duration) if not specified.
-      - If modifying/deleting, find the event ID from the Current Schedule JSON.
-      - If the user asks for a specific person's schedule, list their events clearly.
-      - Be friendly, concise, and helpful.
-    `;
-
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-preview',
-      contents: userMessage,
-      config: {
-        systemInstruction: systemPrompt,
-        tools: [{ functionDeclarations: [addEventTool, updateEventTool, deleteEventTool] }],
-        temperature: 0.7,
+    const response = await fetch('/.netlify/functions/generate', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
       },
+      body: JSON.stringify({
+        userMessage,
+        events: eventsData,
+        members: members.map(m => ({
+          id: m.id,
+          name: m.name,
+          avatar: m.avatar,
+          color: m.color,
+          isAdmin: m.isAdmin
+        }))
+      }),
     });
 
-    let responseText = response.text || "";
+    if (!response.ok) {
+      let errorMessage = `HTTP error! status: ${response.status}`;
+      try {
+        const errorData = await response.json();
+        errorMessage = errorData.error || errorData.details || errorMessage;
+      } catch (e) {
+        try {
+          const text = await response.text();
+          if (text) errorMessage = text;
+        } catch (e2) {
+          // Ignore
+        }
+      }
+      
+      if (import.meta.env.DEV && (response.status === 404 || response.status === 0)) {
+        errorMessage = 'Netlify function not available. To test locally:\n1. Install Netlify CLI: npm install -g netlify-cli\n2. Create a .env file with GEMINI_API_KEY=your_key\n3. Run: netlify dev (instead of npm run dev)';
+      }
+      
+      throw new Error(errorMessage);
+    }
+
+    const data = await response.json();
+
     let action = undefined;
-
-    const functionCalls = response.functionCalls;
-    if (functionCalls && functionCalls.length > 0) {
-      const fc = functionCalls[0];
-      const args = fc.args as any;
-
-      if (fc.name === 'addEvent') {
-        responseText = responseText || `I've added "${args.title}" to the calendar.`;
+    if (data.action) {
+      if (data.action.type === 'ADD') {
         action = {
-          type: 'ADD',
+          type: 'ADD' as const,
           payload: {
             id: generateId(),
-            title: args.title,
-            start: new Date(args.start),
-            end: new Date(args.end),
-            description: args.description || '',
-            location: args.location || '',
-            category: args.category || EventCategory.FAMILY,
-            memberIds: mapNamesToIds(args.attendeeNames, members),
+            title: data.action.payload.title,
+            start: new Date(data.action.payload.start),
+            end: new Date(data.action.payload.end),
+            description: data.action.payload.description || '',
+            location: data.action.payload.location || '',
+            category: (data.action.payload.category || EventCategory.FAMILY) as EventCategory,
+            memberIds: mapNamesToIds(data.action.payload.attendeeNames || [], members),
             audioMessages: []
           }
         };
-      } 
-      else if (fc.name === 'updateEvent') {
-        responseText = responseText || `I've updated the event.`;
+      } else if (data.action.type === 'UPDATE') {
         action = {
-          type: 'UPDATE',
+          type: 'UPDATE' as const,
           payload: {
-            id: args.id,
+            id: data.action.payload.id,
             updates: {
-                ...args,
-                start: args.start ? new Date(args.start) : undefined,
-                end: args.end ? new Date(args.end) : undefined,
-                memberIds: args.attendeeNames ? mapNamesToIds(args.attendeeNames, members) : undefined
+              ...data.action.payload.updates,
+              start: data.action.payload.updates.start ? new Date(data.action.payload.updates.start) : undefined,
+              end: data.action.payload.updates.end ? new Date(data.action.payload.updates.end) : undefined,
+              memberIds: data.action.payload.updates.attendeeNames ? mapNamesToIds(data.action.payload.updates.attendeeNames, members) : undefined
             }
           }
         };
-      } 
-      else if (fc.name === 'deleteEvent') {
-        responseText = responseText || `Event deleted.`;
+      } else if (data.action.type === 'DELETE') {
         action = {
-          type: 'DELETE',
-          payload: args.id
+          type: 'DELETE' as const,
+          payload: data.action.payload
         };
       }
     }
 
-    if (!responseText && !action) {
-       return { text: "I didn't catch that." };
-    }
-
-    return { text: responseText, action: action as any };
+    return { 
+      text: data.text || "I didn't catch that.", 
+      action: action as any 
+    };
 
   } catch (error) {
-    console.error("Gemini API Error:", error);
-    return { text: "I'm having trouble connecting to the calendar service right now." };
+    console.error("API Error:", error);
+    return { 
+      text: error instanceof Error 
+        ? `Error: ${error.message}` 
+        : "I'm having trouble connecting to the calendar service right now." 
+    };
   }
 };
