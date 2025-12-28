@@ -52,7 +52,9 @@ import {
 import EventModal from './components/EventModal';
 import ChatAssistant from './components/ChatAssistant';
 import FamilyManager from './components/FamilyManager';
-import LoginScreen from './components/LoginScreen';
+import AuthScreen from './components/AuthScreen';
+import { authService, familyService, eventService, shoppingService, wishListService } from './services/supabaseService';
+import { supabase } from './lib/supabase';
 import EditProfileModal from './components/EditProfileModal';
 import SyncModal from './components/SyncModal';
 import ShoppingListView from './components/ShoppingListView';
@@ -61,11 +63,14 @@ import WishListView from './components/WishListView';
 function App() {
   // Global State
   const [currentUser, setCurrentUser] = useState<FamilyMember | null>(null);
+  const [currentFamilyId, setCurrentFamilyId] = useState<string | null>(null);
+  const [currentMemberId, setCurrentMemberId] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
   // Data State
   const [currentDate, setCurrentDate] = useState(new Date());
-  const [events, setEvents] = useState<CalendarEvent[]>(INITIAL_EVENTS);
-  const [members, setMembers] = useState<FamilyMember[]>(FAMILY_MEMBERS);
+  const [events, setEvents] = useState<CalendarEvent[]>([]);
+  const [members, setMembers] = useState<FamilyMember[]>([]);
   const [shoppingList, setShoppingList] = useState<ShoppingItem[]>([]);
   const [wishLists, setWishLists] = useState<WishListItem[]>([]);
   
@@ -97,6 +102,25 @@ function App() {
   // Refs
   const searchInputRef = useRef<HTMLInputElement>(null);
 
+  // Check for existing session on mount
+  useEffect(() => {
+    const checkSession = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) {
+          setIsLoading(false);
+          return;
+        }
+        // If session exists, AuthScreen will handle authentication
+        setIsLoading(false);
+      } catch (error) {
+        console.error('Error checking session:', error);
+        setIsLoading(false);
+      }
+    };
+    checkSession();
+  }, []);
+
   // Cleanup audio on unmount or logout
   useEffect(() => {
     return () => {
@@ -107,6 +131,45 @@ function App() {
     };
   }, []);
 
+  // Authentication Handler
+  const handleAuthenticated = async (userId: string, familyId: string, memberId: string) => {
+    setIsLoading(true);
+    try {
+      setCurrentFamilyId(familyId);
+      setCurrentMemberId(memberId);
+      
+      // Load family members
+      const familyMembers = await familyService.getFamilyMembers(familyId);
+      setMembers(familyMembers);
+      
+      // Find current user member
+      const currentMember = familyMembers.find(m => m.id === memberId);
+      if (currentMember) {
+        setCurrentUser(currentMember);
+        setTheme(currentMember.color);
+      }
+      
+      // Load events
+      const familyEvents = await eventService.getFamilyEvents(familyId);
+      setEvents(familyEvents);
+      
+      // Load shopping list
+      const shoppingItems = await shoppingService.getFamilyShoppingItems(familyId);
+      setShoppingList(shoppingItems);
+      
+      // Load wish list
+      const wishListItems = await wishListService.getFamilyWishListItems(familyId);
+      setWishLists(wishListItems);
+      
+      clearFilters();
+    } catch (error) {
+      console.error('Error loading family data:', error);
+      alert('Failed to load family data. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+  
   // Login Handler (Account Switching)
   const handleLogin = (member: FamilyMember) => {
     if (activeAudioRef.current) {
@@ -119,13 +182,20 @@ function App() {
     clearFilters();
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     if (activeAudioRef.current) {
         activeAudioRef.current.pause();
         activeAudioRef.current = null;
         setPlayingAudioId(null);
     }
+    await authService.signOut();
     setCurrentUser(null);
+    setCurrentFamilyId(null);
+    setCurrentMemberId(null);
+    setMembers([]);
+    setEvents([]);
+    setShoppingList([]);
+    setWishLists([]);
     setTheme('indigo'); 
     setViewMode('home');
     setIsSettingsOpen(false);
@@ -249,20 +319,52 @@ function App() {
     setIsModalOpen(true);
   };
   
-  const handleSaveEvent = (event: CalendarEvent) => {
-    if (events.find(e => e.id === event.id)) {
-      setEvents(prev => prev.map(e => e.id === event.id ? event : e));
-    } else {
-      setEvents(prev => [...prev, event]);
+  const handleSaveEvent = async (event: CalendarEvent) => {
+    if (!currentFamilyId || !currentMemberId) {
+      alert('Not authenticated');
+      return;
+    }
+    
+    try {
+      if (events.find(e => e.id === event.id)) {
+        // Update existing event
+        await eventService.updateEvent(event.id, event);
+        // Refresh events
+        const familyEvents = await eventService.getFamilyEvents(currentFamilyId);
+        setEvents(familyEvents);
+      } else {
+        // Create new event
+        await eventService.createEvent(currentFamilyId, event, currentMemberId);
+        // Refresh events
+        const familyEvents = await eventService.getFamilyEvents(currentFamilyId);
+        setEvents(familyEvents);
+      }
+    } catch (error) {
+      console.error('Error saving event:', error);
+      alert('Failed to save event. Please try again.');
     }
   };
   
-  const handleDeleteEvent = (id: string) => {
-    setEvents(prev => prev.filter(e => e.id !== id));
-    if (playingAudioId === id && activeAudioRef.current) {
-        activeAudioRef.current.pause();
-        activeAudioRef.current = null;
-        setPlayingAudioId(null);
+  const handleDeleteEvent = async (id: string) => {
+    if (!currentFamilyId) {
+      alert('Not authenticated');
+      return;
+    }
+    
+    try {
+      await eventService.deleteEvent(id);
+      // Refresh events
+      const familyEvents = await eventService.getFamilyEvents(currentFamilyId);
+      setEvents(familyEvents);
+      
+      if (playingAudioId === id && activeAudioRef.current) {
+          activeAudioRef.current.pause();
+          activeAudioRef.current = null;
+          setPlayingAudioId(null);
+      }
+    } catch (error) {
+      console.error('Error deleting event:', error);
+      alert('Failed to delete event. Please try again.');
     }
   };
 
@@ -270,9 +372,52 @@ function App() {
 
   const renderHomeView = () => {
     const today = new Date();
-    const todaysEvents = events
-      .filter(e => isSameDay(new Date(e.start), today))
-      .sort((a,b) => a.start.getTime() - b.start.getTime());
+    today.setHours(0, 0, 0, 0);
+    
+    const dayAfterTomorrow = new Date(today);
+    dayAfterTomorrow.setDate(dayAfterTomorrow.getDate() + 2);
+    dayAfterTomorrow.setHours(23, 59, 59, 999);
+
+    // Filter events to only show those within the next 3 days
+    const threeDayEvents = events.filter(e => {
+      const eventDate = new Date(e.start);
+      return eventDate >= today && eventDate <= dayAfterTomorrow;
+    });
+
+    // Apply search filters to the 3-day events
+    const filteredThreeDayEvents = threeDayEvents.filter(event => {
+      // 1. Keyword Filter
+      if (searchKeyword) {
+        const q = searchKeyword.toLowerCase();
+        const matchesKeyword = event.title.toLowerCase().includes(q) ||
+                              event.category.toLowerCase().includes(q) ||
+                              (event.description && event.description.toLowerCase().includes(q)) ||
+                              (event.location && event.location.toLowerCase().includes(q));
+        if (!matchesKeyword) return false;
+      }
+
+      // 2. Date Filter
+      if (searchDate) {
+        const eventDateStr = new Date(event.start).toISOString().split('T')[0];
+        if (eventDateStr !== searchDate) return false;
+      }
+
+      // 3. Time Filter
+      if (searchTime) {
+        const eventTimeStr = formatTime(new Date(event.start)).toLowerCase();
+        if (!eventTimeStr.includes(searchTime.toLowerCase())) return false;
+      }
+
+      // 4. Member/Attendee Filter
+      if (searchMemberId) {
+        if (!event.memberIds.includes(searchMemberId)) return false;
+      }
+
+      return true;
+    });
+
+    const sortedEvents = [...filteredThreeDayEvents].sort((a,b) => a.start.getTime() - b.start.getTime());
+    const hasActiveFilters = searchKeyword || searchDate || searchTime || searchMemberId;
 
     return (
       <div className="animate-fade-in-up space-y-8 max-w-5xl mx-auto">
@@ -280,67 +425,168 @@ function App() {
            <h2 className={`text-4xl font-bold text-${theme}-900 mb-2 transition-colors duration-300`}>
              Welcome back, {currentUser?.name}! {currentUser?.avatar}
            </h2>
-           <p className="text-xl text-slate-500 font-medium">{formatDate(today)}</p>
+           <p className="text-xl text-slate-500 font-medium">
+             {today.toLocaleDateString('en-US', { weekday: 'long' })}, {formatDate(today)}
+           </p>
         </div>
 
-        <div>
-           <div className="flex items-center justify-between mb-4">
-              <h3 className="text-xl font-bold text-slate-800 flex items-center gap-2">
-                <span className={`w-1.5 h-6 bg-${theme}-500 rounded-full transition-colors duration-300`}></span>
-                Happening Today
-              </h3>
-              <span className="text-sm font-medium text-slate-400 bg-white px-3 py-1 rounded-full border border-slate-100 shadow-sm">{todaysEvents.length} events</span>
-           </div>
-           
-           {todaysEvents.length === 0 ? (
-             <div className="bg-white rounded-3xl p-8 text-center border border-slate-100 shadow-sm">
-                <div className="w-16 h-16 bg-yellow-100 text-yellow-500 rounded-full flex items-center justify-center mx-auto mb-4 text-2xl">☀️</div>
-                <h4 className="text-lg font-bold text-slate-700">Clear Schedule</h4>
-                <p className="text-slate-500">No events for today. Enjoy your free time!</p>
-             </div>
-           ) : (
-             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-               {todaysEvents.map(event => {
-                 const latestAudio = event.audioMessages && event.audioMessages.length > 0 ? event.audioMessages[event.audioMessages.length - 1] : null;
-                 return (
-                   <div key={event.id} onClick={(e) => handleEventClick(e, event)} className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 hover:shadow-md cursor-pointer transition-all group hover:-translate-y-1">
-                      <div className="flex justify-between items-start mb-3">
-                         <span className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wide border ${CATEGORY_COLORS[event.category]}`}>{event.category}</span>
-                         <div className="flex -space-x-1">
-                            {event.memberIds.map(mid => {
-                               const m = members.find(mem => mem.id === mid);
-                               return m ? <div key={mid} className="w-7 h-7 rounded-full bg-slate-200 border-2 border-white flex items-center justify-center text-xs shadow-sm" title={m.name}>{m.avatar}</div> : null;
-                            })}
-                         </div>
+        <div className="bg-white rounded-[2rem] shadow-xl border border-slate-100 overflow-hidden">
+          {/* Dynamic Filter Panel */}
+          <div className={`bg-${theme}-50 p-6 sm:p-8 border-b border-${theme}-100`}>
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-3">
+                <Filter className={`w-7 h-7 text-${theme}-600`} />
+                Advanced Event Search
+              </h2>
+              {hasActiveFilters && (
+                <button 
+                  onClick={clearFilters}
+                  className="text-xs font-bold text-red-500 hover:text-red-700 flex items-center gap-1 bg-white px-3 py-1.5 rounded-full shadow-sm border border-red-100 transition-all active:scale-95"
+                >
+                  <XCircle className="w-3.5 h-3.5" /> Clear All
+                </button>
+              )}
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              {/* Keyword Search */}
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Keywords</label>
+                <div className="relative">
+                  <input 
+                    ref={searchInputRef}
+                    type="text"
+                    placeholder="Title, description..."
+                    value={searchKeyword}
+                    onChange={(e) => setSearchKeyword(e.target.value)}
+                    className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white shadow-sm"
+                  />
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
+                </div>
+              </div>
+
+              {/* Date Search */}
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Specific Date</label>
+                <div className="relative">
+                  <input 
+                    type="date"
+                    value={searchDate}
+                    onChange={(e) => setSearchDate(e.target.value)}
+                    className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white shadow-sm"
+                  />
+                  <CalendarIcon className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
+                </div>
+              </div>
+
+              {/* Time Search */}
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Time of Day</label>
+                <div className="relative">
+                  <input 
+                    type="text"
+                    placeholder="e.g. 10:00, PM"
+                    value={searchTime}
+                    onChange={(e) => setSearchTime(e.target.value)}
+                    className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white shadow-sm"
+                  />
+                  <Clock className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
+                </div>
+              </div>
+
+              {/* Attendee Search */}
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Attendee</label>
+                <div className="relative">
+                  <select 
+                    value={searchMemberId}
+                    onChange={(e) => setSearchMemberId(e.target.value)}
+                    className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white shadow-sm appearance-none font-medium"
+                  >
+                    <option value="">Anyone</option>
+                    {members.map(m => (
+                      <option key={m.id} value={m.id}>{m.avatar} {m.name}</option>
+                    ))}
+                  </select>
+                  <Users className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
+                  <ChevronDown className="w-4 h-4 text-slate-400 absolute right-3 top-3.5 pointer-events-none" />
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          {/* Event List */}
+          <div className="divide-y divide-slate-100 max-h-[600px] overflow-y-auto custom-scrollbar">
+            {sortedEvents.length === 0 ? (
+              <div className="p-16 text-center">
+                <div className={`w-16 h-16 bg-slate-50 text-slate-300 rounded-full flex items-center justify-center mx-auto mb-4 border border-dashed border-slate-200`}>
+                  <Search className="w-8 h-8" />
+                </div>
+                <p className="text-xl font-bold text-slate-600">No events matched your criteria</p>
+                <p className="text-sm text-slate-400 mt-2">Try adjusting your filters or clearing them to see everything.</p>
+                {hasActiveFilters && (
+                  <button 
+                    onClick={clearFilters}
+                    className={`mt-6 px-6 py-2 bg-${theme}-600 text-white rounded-full font-bold shadow-md hover:bg-${theme}-700 transition-all active:scale-95`}
+                  >
+                    Show All Events
+                  </button>
+                )}
+              </div>
+            ) : (
+              sortedEvents.map(event => {
+                const latestAudio = event.audioMessages && event.audioMessages.length > 0 ? event.audioMessages[event.audioMessages.length - 1] : null;
+                return (
+                  <div key={event.id} onClick={(e) => handleEventClick(e, event)} className="p-5 hover:bg-slate-50 transition-colors cursor-pointer group flex gap-5 border-l-4 border-transparent hover:border-indigo-500">
+                    <div className="flex flex-col items-center justify-center min-w-[70px] text-center bg-slate-50/50 rounded-2xl p-2 border border-slate-100 group-hover:bg-white transition-colors">
+                      <span className={`text-[10px] font-black uppercase text-${theme}-600 mb-0.5`}>{getDayName(new Date(event.start))}</span>
+                      <span className="text-3xl font-black text-slate-800 leading-none">{new Date(event.start).getDate()}</span>
+                      <span className="text-[9px] font-bold text-slate-400 uppercase mt-1">{new Date(event.start).toLocaleString('en-US', { month: 'short' })}</span>
+                    </div>
+                    <div className="flex-1">
+                      <div className="flex justify-between items-start">
+                        <h3 className={`font-bold text-xl text-slate-800 group-hover:text-${theme}-600 transition-colors line-clamp-1`}>{event.title}</h3>
+                        <span className={`text-[10px] px-3 py-1 rounded-full border uppercase font-black tracking-wider shadow-sm ${CATEGORY_COLORS[event.category]}`}>{event.category}</span>
                       </div>
-                      <div className="flex items-start justify-between gap-2">
-                         <h4 className={`font-bold text-lg text-slate-800 group-hover:text-${theme}-600 transition-colors mb-2 line-clamp-1`}>{event.title}</h4>
-                         {latestAudio && (
-                           <button
-                             onClick={(e) => handlePlayAudio(e, event.id, latestAudio.data)}
-                             className={`p-1.5 rounded-full hover:bg-${theme}-50 transition-colors flex-shrink-0 ${playingAudioId === event.id ? 'text-red-500 bg-red-50' : `text-${theme}-400 hover:text-${theme}-600`}`}
-                             title="Play latest voice note"
-                           >
-                             {playingAudioId === event.id ? <Square className="w-4 h-4 fill-current" /> : <Play className="w-4 h-4 fill-current" />}
-                           </button>
-                         )}
-                         {!latestAudio && event.audioMessages && event.audioMessages.length > 0 && <Mic className={`w-4 h-4 text-${theme}-300`} />}
+                      <div className="flex flex-wrap items-center gap-x-6 gap-y-2 mt-2 text-sm text-slate-500 font-medium">
+                        <span className="flex items-center gap-2"><Clock className={`w-4 h-4 text-${theme}-400`} /> {formatTime(new Date(event.start))}</span>
+                        {event.location && <span className="flex items-center gap-2"><MapPin className={`w-4 h-4 text-${theme}-400`} /> {event.location}</span>}
+                        {event.audioMessages && event.audioMessages.length > 0 && (
+                          <div className="flex items-center gap-3">
+                            <span className="flex items-center gap-1.5 text-red-500 font-black text-[10px] uppercase bg-red-50 px-2 py-0.5 rounded-lg">
+                              <Mic className="w-3.5 h-3.5" /> {event.audioMessages.length} Voice Note{event.audioMessages.length > 1 ? 's' : ''}
+                            </span>
+                            {latestAudio && (
+                              <button
+                                onClick={(e) => handlePlayAudio(e, event.id, latestAudio.data)}
+                                className={`p-2 rounded-full hover:bg-white shadow-sm border border-slate-100 transition-all ${playingAudioId === event.id ? 'text-red-500 bg-red-50 border-red-200' : 'text-slate-400 hover:text-slate-600'}`}
+                                title="Play latest voice note"
+                              >
+                                {playingAudioId === event.id ? <Square className="w-3.5 h-3.5 fill-current" /> : <Play className="w-3.5 h-3.5 fill-current ml-0.5" />}
+                              </button>
+                            )}
+                          </div>
+                        )}
                       </div>
-                      <div className="flex items-center gap-2 text-sm text-slate-500 font-medium">
-                         <Clock className={`w-4 h-4 text-${theme}-400`} />
-                         {formatTime(new Date(event.start))} - {formatTime(new Date(event.end))}
-                      </div>
-                      {event.location && (
-                        <div className="flex items-center gap-2 text-sm text-slate-500 font-medium mt-1">
-                           <MapPin className={`w-4 h-4 text-${theme}-400`} />
-                           {event.location}
+                      <div className="flex items-center gap-2 mt-4">
+                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest mr-1">Attendees:</span>
+                        <div className="flex -space-x-1.5">
+                          {event.memberIds.map(mid => {
+                            const m = members.find(mem => mem.id === mid);
+                            return m ? (
+                              <div key={mid} className="w-8 h-8 rounded-full bg-white border-2 border-slate-50 flex items-center justify-center text-sm shadow-sm hover:scale-110 transition-transform relative z-10 hover:z-20" title={m.name}>
+                                {m.avatar}
+                              </div>
+                            ) : null;
+                          })}
                         </div>
-                      )}
-                   </div>
-                 );
-               })}
-             </div>
-           )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
         </div>
 
         <div>
@@ -355,14 +601,6 @@ function App() {
                 </div>
                 <h4 className="font-bold text-slate-800">Month View</h4>
                 <p className="text-xs text-slate-500 mt-1 text-balance">Plan the family month</p>
-              </button>
-
-              <button onClick={() => setViewMode('list')} className="bg-white hover:bg-purple-50/50 p-6 rounded-3xl border border-slate-100 shadow-sm transition-all group text-left">
-                <div className="w-12 h-12 bg-purple-100 text-purple-600 rounded-2xl flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
-                  <List className="w-6 h-6" />
-                </div>
-                <h4 className="font-bold text-slate-800">Full List</h4>
-                <p className="text-xs text-slate-500 mt-1">Browse all events</p>
               </button>
 
               <button onClick={() => setViewMode('shopping')} className="bg-white hover:bg-emerald-50/50 p-6 rounded-3xl border border-slate-100 shadow-sm transition-all group text-left relative overflow-hidden">
@@ -392,17 +630,6 @@ function App() {
                 </div>
                 <h4 className="font-bold text-slate-800">Add Event</h4>
                 <p className="text-xs text-slate-500 mt-1">Quick event creation</p>
-              </button>
-              
-               <button 
-                  onClick={() => { setViewMode('list'); setTimeout(() => searchInputRef.current?.focus(), 50); }} 
-                  className="bg-white hover:bg-slate-50 p-6 rounded-3xl border border-slate-100 shadow-sm transition-all group text-left relative overflow-hidden"
-               >
-                <div className="w-12 h-12 bg-slate-100 text-slate-600 rounded-2xl flex items-center justify-center mb-3 group-hover:scale-110 transition-transform relative z-10">
-                  <Search className="w-6 h-6" />
-                </div>
-                <h4 className="font-bold text-slate-800 relative z-10">Find Event</h4>
-                <p className="text-xs text-slate-500 mt-1 relative z-10">Search the schedule</p>
               </button>
            </div>
         </div>
@@ -648,7 +875,18 @@ function App() {
      );
   };
 
-  if (!currentUser) return <LoginScreen members={members} onLogin={handleLogin} />;
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500">
+        <div className="text-white text-center">
+          <div className="w-16 h-16 border-4 border-white border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <h1 className="text-3xl font-bold">Loading fam.ly...</h1>
+        </div>
+      </div>
+    );
+  }
+
+  if (!currentUser) return <AuthScreen onAuthenticated={handleAuthenticated} />;
 
   return (
     <div className={`min-h-screen bg-slate-50 pb-20 theme-${theme}`}>

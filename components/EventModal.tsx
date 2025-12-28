@@ -296,21 +296,40 @@ const EventModal: React.FC<EventModalProps> = ({
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Who is going?</label>
-            <div className="flex gap-2">
+            <label className="block text-sm font-medium text-slate-700 mb-2">Attendee(s)</label>
+            <div className="space-y-2">
               {members.map((member) => (
                 <button
                   key={member.id}
                   type="button"
                   onClick={() => toggleMember(member.id)}
-                  className={`w-10 h-10 rounded-full flex items-center justify-center text-xl transition-all border-2 ${
+                  className={`w-full flex items-center gap-3 p-3 rounded-xl transition-all border-2 ${
                     selectedMembers.includes(member.id)
-                      ? `border-${member.color}-500 bg-${member.color}-100 transform scale-110 shadow-sm`
-                      : 'border-transparent grayscale hover:grayscale-0 bg-slate-100'
+                      ? `border-${member.color}-500 bg-${member.color}-50 shadow-sm`
+                      : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
                   }`}
-                  title={member.name}
                 >
-                  {member.avatar}
+                  <div className={`w-10 h-10 rounded-full flex items-center justify-center text-xl ${
+                    selectedMembers.includes(member.id)
+                      ? `bg-${member.color}-100`
+                      : 'bg-slate-100'
+                  }`}>
+                    {member.avatar}
+                  </div>
+                  <span className={`flex-1 text-left font-medium ${
+                    selectedMembers.includes(member.id)
+                      ? `text-${member.color}-700`
+                      : 'text-slate-700'
+                  }`}>
+                    {member.name}
+                  </span>
+                  {selectedMembers.includes(member.id) && (
+                    <div className={`w-5 h-5 rounded-full bg-${member.color}-500 flex items-center justify-center`}>
+                      <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                      </svg>
+                    </div>
+                  )}
                 </button>
               ))}
             </div>

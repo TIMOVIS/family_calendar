@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { FamilyMember } from '../types';
 import { Sparkles, Crown, ArrowRight } from 'lucide-react';
