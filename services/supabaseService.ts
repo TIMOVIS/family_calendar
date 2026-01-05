@@ -270,6 +270,7 @@ export const eventService = {
         data: am.data,
         duration: am.duration || 0,
       })) || [],
+      isCompleted: e.is_completed || false,
     }));
   },
 
@@ -339,6 +340,7 @@ export const eventService = {
     if (updates.end !== undefined) updateData.end = updates.end.toISOString();
     if (updates.location !== undefined) updateData.location = updates.location;
     if (updates.category !== undefined) updateData.category = updates.category;
+    if (updates.isCompleted !== undefined) updateData.is_completed = updates.isCompleted;
 
     const { error } = await supabase
       .from('events')

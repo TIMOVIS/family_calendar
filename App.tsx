@@ -24,7 +24,9 @@ import {
   Users, 
   Filter, 
   XCircle, 
-  ChevronDown 
+  ChevronDown,
+  CheckCircle2,
+  Circle
 } from 'lucide-react';
 import { 
   getDaysInMonth, 
@@ -344,6 +346,27 @@ function App() {
       alert('Failed to save event. Please try again.');
     }
   };
+
+  const handleToggleEventCompleted = async (eventId: string, e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent opening the event modal
+    if (!currentFamilyId) {
+      alert('Not authenticated');
+      return;
+    }
+
+    const event = events.find(e => e.id === eventId);
+    if (!event) return;
+
+    try {
+      await eventService.updateEvent(eventId, { isCompleted: !event.isCompleted });
+      // Refresh events
+      const familyEvents = await eventService.getFamilyEvents(currentFamilyId);
+      setEvents(familyEvents);
+    } catch (error) {
+      console.error('Error toggling event completion:', error);
+      alert('Failed to update event. Please try again.');
+    }
+  };
   
   const handleDeleteEvent = async (id: string) => {
     if (!currentFamilyId) {
@@ -536,18 +559,27 @@ function App() {
             ) : (
               sortedEvents.map(event => {
                 const latestAudio = event.audioMessages && event.audioMessages.length > 0 ? event.audioMessages[event.audioMessages.length - 1] : null;
+                const isCompleted = event.isCompleted || false;
                 return (
-                  <div key={event.id} onClick={(e) => handleEventClick(e, event)} className="p-5 hover:bg-slate-50 transition-colors cursor-pointer group flex gap-5 border-l-4 border-transparent hover:border-indigo-500">
+                  <div key={event.id} onClick={(e) => handleEventClick(e, event)} className={`p-5 hover:bg-slate-50 transition-colors cursor-pointer group flex gap-5 border-l-4 border-transparent hover:border-indigo-500 ${isCompleted ? 'opacity-60' : ''}`}>
                     <div className="flex flex-col items-center justify-center min-w-[70px] text-center bg-slate-50/50 rounded-2xl p-2 border border-slate-100 group-hover:bg-white transition-colors">
                       <span className={`text-[10px] font-black uppercase text-${theme}-600 mb-0.5`}>{getDayName(new Date(event.start))}</span>
                       <span className="text-3xl font-black text-slate-800 leading-none">{new Date(event.start).getDate()}</span>
                       <span className="text-[9px] font-bold text-slate-400 uppercase mt-1">{new Date(event.start).toLocaleString('en-US', { month: 'short' })}</span>
                     </div>
-                    <div className="flex-1">
-                      <div className="flex justify-between items-start">
-                        <h3 className={`font-bold text-xl text-slate-800 group-hover:text-${theme}-600 transition-colors line-clamp-1`}>{event.title}</h3>
-                        <span className={`text-[10px] px-3 py-1 rounded-full border uppercase font-black tracking-wider shadow-sm ${CATEGORY_COLORS[event.category]}`}>{event.category}</span>
-                      </div>
+                    <div className="flex-1 flex gap-4">
+                      <button
+                        onClick={(e) => handleToggleEventCompleted(event.id, e)}
+                        className={`transition-colors flex-shrink-0 ${isCompleted ? 'text-emerald-500' : 'text-slate-300 hover:text-indigo-500'}`}
+                        title={isCompleted ? 'Mark as not done' : 'Mark as done'}
+                      >
+                        {isCompleted ? <CheckCircle2 className="w-7 h-7" /> : <Circle className="w-7 h-7" />}
+                      </button>
+                      <div className="flex-1">
+                        <div className="flex justify-between items-start">
+                          <h3 className={`font-bold text-xl ${isCompleted ? 'line-through text-slate-400' : 'text-slate-800 group-hover:text-' + theme + '-600'} transition-colors line-clamp-1`}>{event.title}</h3>
+                          <span className={`text-[10px] px-3 py-1 rounded-full border uppercase font-black tracking-wider shadow-sm ${CATEGORY_COLORS[event.category]}`}>{event.category}</span>
+                        </div>
                       <div className="flex flex-wrap items-center gap-x-6 gap-y-2 mt-2 text-sm text-slate-500 font-medium">
                         <span className="flex items-center gap-2"><Clock className={`w-4 h-4 text-${theme}-400`} /> {formatTime(new Date(event.start))}</span>
                         {event.location && <span className="flex items-center gap-2"><MapPin className={`w-4 h-4 text-${theme}-400`} /> {event.location}</span>}
@@ -582,6 +614,7 @@ function App() {
                         </div>
                       </div>
                     </div>
+                  </div>
                   </div>
                 );
               })

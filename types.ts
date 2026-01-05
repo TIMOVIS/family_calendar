@@ -36,6 +36,7 @@ export interface CalendarEvent {
   category: EventCategory;
   memberIds: string[]; // IDs of family members involved
   audioMessages?: AudioMessage[];
+  isCompleted?: boolean;
 }
 
 export interface ChatMessage {
