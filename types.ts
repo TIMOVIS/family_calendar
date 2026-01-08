@@ -17,6 +17,7 @@ export interface FamilyMember {
   avatar: string; // URL or emoji
   color: ThemeColor; // Now strictly typed
   isAdmin?: boolean;
+  points?: number; // Total points earned
 }
 
 export interface AudioMessage {
@@ -34,7 +35,8 @@ export interface CalendarEvent {
   end: Date;
   location?: string;
   category: EventCategory;
-  memberIds: string[]; // IDs of family members involved
+  memberIds: string[]; // IDs of family members involved (attendees)
+  createdBy?: string; // ID of the member who created/organized the event
   audioMessages?: AudioMessage[];
   isCompleted?: boolean;
 }

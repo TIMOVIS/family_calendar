@@ -151,8 +151,8 @@ function App() {
         setTheme(currentMember.color);
       }
       
-      // Load events
-      const familyEvents = await eventService.getFamilyEvents(familyId);
+      // Load events (filtered based on member role)
+      const familyEvents = await eventService.getFamilyEvents(familyId, memberId, currentMember?.isAdmin);
       setEvents(familyEvents);
       
       // Load shopping list
@@ -173,14 +173,26 @@ function App() {
   };
   
   // Login Handler (Account Switching)
-  const handleLogin = (member: FamilyMember) => {
+  const handleLogin = async (member: FamilyMember) => {
     if (activeAudioRef.current) {
       activeAudioRef.current.pause();
       activeAudioRef.current = null;
       setPlayingAudioId(null);
     }
     setCurrentUser(member);
-    setTheme(member.color); 
+    setTheme(member.color);
+    setCurrentMemberId(member.id);
+    
+    // Reload events with new member's visibility
+    if (currentFamilyId) {
+      try {
+        const familyEvents = await eventService.getFamilyEvents(currentFamilyId, member.id, member.isAdmin);
+        setEvents(familyEvents);
+      } catch (error) {
+        console.error('Error loading events after login:', error);
+      }
+    }
+    
     clearFilters();
   };
 
@@ -332,13 +344,13 @@ function App() {
         // Update existing event
         await eventService.updateEvent(event.id, event);
         // Refresh events
-        const familyEvents = await eventService.getFamilyEvents(currentFamilyId);
+        const familyEvents = await eventService.getFamilyEvents(currentFamilyId, currentMemberId, currentUser?.isAdmin);
         setEvents(familyEvents);
       } else {
         // Create new event
         await eventService.createEvent(currentFamilyId, event, currentMemberId);
         // Refresh events
-        const familyEvents = await eventService.getFamilyEvents(currentFamilyId);
+        const familyEvents = await eventService.getFamilyEvents(currentFamilyId, currentMemberId, currentUser?.isAdmin);
         setEvents(familyEvents);
       }
     } catch (error) {
@@ -349,7 +361,7 @@ function App() {
 
   const handleToggleEventCompleted = async (eventId: string, e: React.MouseEvent) => {
     e.stopPropagation(); // Prevent opening the event modal
-    if (!currentFamilyId) {
+    if (!currentFamilyId || !currentMemberId) {
       alert('Not authenticated');
       return;
     }
@@ -360,8 +372,46 @@ function App() {
     try {
       await eventService.updateEvent(eventId, { isCompleted: !event.isCompleted });
       // Refresh events
-      const familyEvents = await eventService.getFamilyEvents(currentFamilyId);
+      const familyEvents = await eventService.getFamilyEvents(currentFamilyId, currentMemberId, currentUser?.isAdmin);
       setEvents(familyEvents);
+
+      // Check if all events for this day are completed and award points
+      const eventDate = new Date(event.start);
+      eventDate.setHours(0, 0, 0, 0);
+      
+      // Get all events for this day that the member is involved in
+      const dayEvents = familyEvents.filter(e => {
+        const eDate = new Date(e.start);
+        eDate.setHours(0, 0, 0, 0);
+        const isSameDay = eDate.getTime() === eventDate.getTime();
+        const isInvolved = e.createdBy === currentMemberId || e.memberIds.includes(currentMemberId);
+        return isSameDay && isInvolved;
+      });
+
+      // Check if all events for this day are completed
+      const allCompleted = dayEvents.length > 0 && dayEvents.every(e => e.isCompleted);
+      
+      if (allCompleted) {
+        // Check if points have already been awarded for this day
+        const alreadyAwarded = await familyService.hasCompletedDay(currentMemberId, eventDate);
+        
+        if (!alreadyAwarded) {
+          // Award 100 points
+          await familyService.addMemberPoints(currentMemberId, 100);
+          await familyService.markDayCompleted(currentMemberId, eventDate, 100);
+          
+          // Refresh member data to update points display
+          const familyMembers = await familyService.getFamilyMembers(currentFamilyId);
+          setMembers(familyMembers);
+          const updatedMember = familyMembers.find(m => m.id === currentMemberId);
+          if (updatedMember) {
+            setCurrentUser(updatedMember);
+          }
+          
+          // Show celebration message
+          alert(`🎉 Congratulations! You completed all events for ${formatDate(eventDate)} and earned 100 points!`);
+        }
+      }
     } catch (error) {
       console.error('Error toggling event completion:', error);
       alert('Failed to update event. Please try again.');
@@ -377,7 +427,7 @@ function App() {
     try {
       await eventService.deleteEvent(id);
       // Refresh events
-      const familyEvents = await eventService.getFamilyEvents(currentFamilyId);
+      const familyEvents = await eventService.getFamilyEvents(currentFamilyId, currentMemberId || undefined, currentUser?.isAdmin);
       setEvents(familyEvents);
       
       if (playingAudioId === id && activeAudioRef.current) {
@@ -393,9 +443,29 @@ function App() {
 
   const getEventsForDay = (date: Date) => filteredEvents.filter(e => isSameDay(new Date(e.start), date));
 
+  // Calculate progress for a specific day
+  const calculateDayProgress = (date: Date, dayEvents: CalendarEvent[]): { completed: number; total: number; percentage: number } => {
+    if (!currentMemberId) return { completed: 0, total: 0, percentage: 0 };
+    
+    // Filter events where the current member is involved (organizer or attendee)
+    const memberEvents = dayEvents.filter(e => {
+      const isInvolved = e.createdBy === currentMemberId || e.memberIds.includes(currentMemberId);
+      return isInvolved;
+    });
+    
+    const total = memberEvents.length;
+    const completed = memberEvents.filter(e => e.isCompleted).length;
+    const percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
+    
+    return { completed, total, percentage };
+  };
+
   const renderHomeView = () => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
+    
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
     
     const dayAfterTomorrow = new Date(today);
     dayAfterTomorrow.setDate(dayAfterTomorrow.getDate() + 2);
@@ -406,6 +476,16 @@ function App() {
       const eventDate = new Date(e.start);
       return eventDate >= today && eventDate <= dayAfterTomorrow;
     });
+    
+    // Group events by day
+    const todayEvents = threeDayEvents.filter(e => isSameDay(new Date(e.start), today));
+    const tomorrowEvents = threeDayEvents.filter(e => isSameDay(new Date(e.start), tomorrow));
+    const dayAfterTomorrowEvents = threeDayEvents.filter(e => isSameDay(new Date(e.start), dayAfterTomorrow));
+    
+    // Calculate progress for each day
+    const todayProgress = calculateDayProgress(today, todayEvents);
+    const tomorrowProgress = calculateDayProgress(tomorrow, tomorrowEvents);
+    const dayAfterTomorrowProgress = calculateDayProgress(dayAfterTomorrow, dayAfterTomorrowEvents);
 
     // Apply search filters to the 3-day events
     const filteredThreeDayEvents = threeDayEvents.filter(event => {
@@ -439,8 +519,137 @@ function App() {
       return true;
     });
 
-    const sortedEvents = [...filteredThreeDayEvents].sort((a,b) => a.start.getTime() - b.start.getTime());
     const hasActiveFilters = searchKeyword || searchDate || searchTime || searchMemberId;
+    
+    // Helper function to render a day section with progress bar
+    const renderDaySection = (dayLabel: string, dayDate: Date, dayEvents: CalendarEvent[], progress: { completed: number; total: number; percentage: number }) => {
+      const filteredDayEvents = dayEvents.filter(event => {
+        if (searchKeyword) {
+          const q = searchKeyword.toLowerCase();
+          const matchesKeyword = event.title.toLowerCase().includes(q) ||
+                                event.category.toLowerCase().includes(q) ||
+                                (event.description && event.description.toLowerCase().includes(q)) ||
+                                (event.location && event.location.toLowerCase().includes(q));
+          if (!matchesKeyword) return false;
+        }
+        if (searchDate) {
+          const eventDateStr = new Date(event.start).toISOString().split('T')[0];
+          if (eventDateStr !== searchDate) return false;
+        }
+        if (searchTime) {
+          const eventTimeStr = formatTime(new Date(event.start)).toLowerCase();
+          if (!eventTimeStr.includes(searchTime.toLowerCase())) return false;
+        }
+        if (searchMemberId) {
+          if (!event.memberIds.includes(searchMemberId)) return false;
+        }
+        return true;
+      });
+      
+      const sortedDayEvents = [...filteredDayEvents].sort((a,b) => a.start.getTime() - b.start.getTime());
+      
+      return (
+        <div key={dayLabel} className="mb-8">
+          <div className="mb-4">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className={`text-2xl font-bold text-${theme}-900`}>{dayLabel}</h3>
+              {progress.total > 0 && (
+                <span className="text-sm font-bold text-slate-600">
+                  {progress.completed}/{progress.total} completed
+                </span>
+              )}
+            </div>
+            {/* Progress Bar */}
+            {progress.total > 0 ? (
+              <div className="w-full bg-slate-200 rounded-full h-4 overflow-hidden shadow-inner">
+                <div 
+                  className={`h-full bg-gradient-to-r from-${theme}-400 to-${theme}-600 transition-all duration-500 ease-out rounded-full flex items-center justify-end pr-2`}
+                  style={{ width: `${progress.percentage}%` }}
+                >
+                  {progress.percentage === 100 && (
+                    <span className="text-white text-xs font-black">✓</span>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="w-full bg-slate-100 rounded-full h-4">
+                <div className="h-full bg-slate-200 rounded-full" style={{ width: '0%' }} />
+              </div>
+            )}
+          </div>
+          
+          {sortedDayEvents.length === 0 ? (
+            <div className="p-8 text-center bg-slate-50 rounded-xl border border-slate-200">
+              <p className="text-slate-500 font-medium">No events for {dayLabel.toLowerCase()}</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {sortedDayEvents.map(event => {
+                const latestAudio = event.audioMessages && event.audioMessages.length > 0 ? event.audioMessages[event.audioMessages.length - 1] : null;
+                const isCompleted = event.isCompleted || false;
+                return (
+                  <div key={event.id} onClick={(e) => handleEventClick(e, event)} className={`p-5 bg-white rounded-xl border border-slate-200 hover:border-${theme}-300 hover:shadow-md transition-all cursor-pointer group flex gap-5 ${isCompleted ? 'opacity-60' : ''}`}>
+                    <div className="flex flex-col items-center justify-center min-w-[70px] text-center bg-slate-50/50 rounded-2xl p-2 border border-slate-100 group-hover:bg-white transition-colors">
+                      <span className={`text-[10px] font-black uppercase text-${theme}-600 mb-0.5`}>{getDayName(new Date(event.start))}</span>
+                      <span className="text-3xl font-black text-slate-800 leading-none">{new Date(event.start).getDate()}</span>
+                      <span className="text-[9px] font-bold text-slate-400 uppercase mt-1">{new Date(event.start).toLocaleString('en-US', { month: 'short' })}</span>
+                    </div>
+                    <div className="flex-1 flex gap-4">
+                      <button
+                        onClick={(e) => handleToggleEventCompleted(event.id, e)}
+                        className={`transition-colors flex-shrink-0 ${isCompleted ? 'text-emerald-500' : 'text-slate-300 hover:text-indigo-500'}`}
+                        title={isCompleted ? 'Mark as not done' : 'Mark as done'}
+                      >
+                        {isCompleted ? <CheckCircle2 className="w-7 h-7" /> : <Circle className="w-7 h-7" />}
+                      </button>
+                      <div className="flex-1">
+                        <div className="flex justify-between items-start">
+                          <h3 className={`font-bold text-xl ${isCompleted ? 'line-through text-slate-400' : 'text-slate-800 group-hover:text-' + theme + '-600'} transition-colors line-clamp-1`}>{event.title}</h3>
+                          <span className={`text-[10px] px-3 py-1 rounded-full border uppercase font-black tracking-wider shadow-sm ${CATEGORY_COLORS[event.category]}`}>{event.category}</span>
+                        </div>
+                      <div className="flex flex-wrap items-center gap-x-6 gap-y-2 mt-2 text-sm text-slate-500 font-medium">
+                        <span className="flex items-center gap-2"><Clock className={`w-4 h-4 text-${theme}-400`} /> {formatTime(new Date(event.start))}</span>
+                        {event.location && <span className="flex items-center gap-2"><MapPin className={`w-4 h-4 text-${theme}-400`} /> {event.location}</span>}
+                        {event.audioMessages && event.audioMessages.length > 0 && (
+                          <div className="flex items-center gap-3">
+                            <span className="flex items-center gap-1.5 text-red-500 font-black text-[10px] uppercase bg-red-50 px-2 py-0.5 rounded-lg">
+                              <Mic className="w-3.5 h-3.5" /> {event.audioMessages.length} Voice Note{event.audioMessages.length > 1 ? 's' : ''}
+                            </span>
+                            {latestAudio && (
+                              <button
+                                onClick={(e) => handlePlayAudio(e, event.id, latestAudio.data)}
+                                className={`p-2 rounded-full hover:bg-white shadow-sm border border-slate-100 transition-all ${playingAudioId === event.id ? 'text-red-500 bg-red-50 border-red-200' : 'text-slate-400 hover:text-slate-600'}`}
+                                title="Play latest voice note"
+                              >
+                                {playingAudioId === event.id ? <Square className="w-3.5 h-3.5 fill-current" /> : <Play className="w-3.5 h-3.5 fill-current ml-0.5" />}
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 mt-4">
+                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest mr-1">Attendees:</span>
+                        <div className="flex -space-x-1.5">
+                          {event.memberIds.map(mid => {
+                            const m = members.find(mem => mem.id === mid);
+                            return m ? (
+                              <div key={mid} className="w-8 h-8 rounded-full bg-white border-2 border-slate-50 flex items-center justify-center text-sm shadow-sm hover:scale-110 transition-transform relative z-10 hover:z-20" title={m.name}>
+                                {m.avatar}
+                              </div>
+                            ) : null;
+                          })}
+                        </div>
+                      </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      );
+    };
 
     return (
       <div className="animate-fade-in-up space-y-8 max-w-5xl mx-auto">
@@ -451,6 +660,11 @@ function App() {
            <p className="text-xl text-slate-500 font-medium">
              {today.toLocaleDateString('en-US', { weekday: 'long' })}, {formatDate(today)}
            </p>
+           {currentUser?.points !== undefined && (
+             <p className="text-lg font-bold text-slate-600 mt-2">
+               Points: <span className={`text-${theme}-600`}>{currentUser.points}</span>
+             </p>
+           )}
         </div>
 
         <div className="bg-white rounded-[2rem] shadow-xl border border-slate-100 overflow-hidden">
@@ -538,87 +752,11 @@ function App() {
             </div>
           </div>
           
-          {/* Event List */}
-          <div className="divide-y divide-slate-100 max-h-[600px] overflow-y-auto custom-scrollbar">
-            {sortedEvents.length === 0 ? (
-              <div className="p-16 text-center">
-                <div className={`w-16 h-16 bg-slate-50 text-slate-300 rounded-full flex items-center justify-center mx-auto mb-4 border border-dashed border-slate-200`}>
-                  <Search className="w-8 h-8" />
-                </div>
-                <p className="text-xl font-bold text-slate-600">No events matched your criteria</p>
-                <p className="text-sm text-slate-400 mt-2">Try adjusting your filters or clearing them to see everything.</p>
-                {hasActiveFilters && (
-                  <button 
-                    onClick={clearFilters}
-                    className={`mt-6 px-6 py-2 bg-${theme}-600 text-white rounded-full font-bold shadow-md hover:bg-${theme}-700 transition-all active:scale-95`}
-                  >
-                    Show All Events
-                  </button>
-                )}
-              </div>
-            ) : (
-              sortedEvents.map(event => {
-                const latestAudio = event.audioMessages && event.audioMessages.length > 0 ? event.audioMessages[event.audioMessages.length - 1] : null;
-                const isCompleted = event.isCompleted || false;
-                return (
-                  <div key={event.id} onClick={(e) => handleEventClick(e, event)} className={`p-5 hover:bg-slate-50 transition-colors cursor-pointer group flex gap-5 border-l-4 border-transparent hover:border-indigo-500 ${isCompleted ? 'opacity-60' : ''}`}>
-                    <div className="flex flex-col items-center justify-center min-w-[70px] text-center bg-slate-50/50 rounded-2xl p-2 border border-slate-100 group-hover:bg-white transition-colors">
-                      <span className={`text-[10px] font-black uppercase text-${theme}-600 mb-0.5`}>{getDayName(new Date(event.start))}</span>
-                      <span className="text-3xl font-black text-slate-800 leading-none">{new Date(event.start).getDate()}</span>
-                      <span className="text-[9px] font-bold text-slate-400 uppercase mt-1">{new Date(event.start).toLocaleString('en-US', { month: 'short' })}</span>
-                    </div>
-                    <div className="flex-1 flex gap-4">
-                      <button
-                        onClick={(e) => handleToggleEventCompleted(event.id, e)}
-                        className={`transition-colors flex-shrink-0 ${isCompleted ? 'text-emerald-500' : 'text-slate-300 hover:text-indigo-500'}`}
-                        title={isCompleted ? 'Mark as not done' : 'Mark as done'}
-                      >
-                        {isCompleted ? <CheckCircle2 className="w-7 h-7" /> : <Circle className="w-7 h-7" />}
-                      </button>
-                      <div className="flex-1">
-                        <div className="flex justify-between items-start">
-                          <h3 className={`font-bold text-xl ${isCompleted ? 'line-through text-slate-400' : 'text-slate-800 group-hover:text-' + theme + '-600'} transition-colors line-clamp-1`}>{event.title}</h3>
-                          <span className={`text-[10px] px-3 py-1 rounded-full border uppercase font-black tracking-wider shadow-sm ${CATEGORY_COLORS[event.category]}`}>{event.category}</span>
-                        </div>
-                      <div className="flex flex-wrap items-center gap-x-6 gap-y-2 mt-2 text-sm text-slate-500 font-medium">
-                        <span className="flex items-center gap-2"><Clock className={`w-4 h-4 text-${theme}-400`} /> {formatTime(new Date(event.start))}</span>
-                        {event.location && <span className="flex items-center gap-2"><MapPin className={`w-4 h-4 text-${theme}-400`} /> {event.location}</span>}
-                        {event.audioMessages && event.audioMessages.length > 0 && (
-                          <div className="flex items-center gap-3">
-                            <span className="flex items-center gap-1.5 text-red-500 font-black text-[10px] uppercase bg-red-50 px-2 py-0.5 rounded-lg">
-                              <Mic className="w-3.5 h-3.5" /> {event.audioMessages.length} Voice Note{event.audioMessages.length > 1 ? 's' : ''}
-                            </span>
-                            {latestAudio && (
-                              <button
-                                onClick={(e) => handlePlayAudio(e, event.id, latestAudio.data)}
-                                className={`p-2 rounded-full hover:bg-white shadow-sm border border-slate-100 transition-all ${playingAudioId === event.id ? 'text-red-500 bg-red-50 border-red-200' : 'text-slate-400 hover:text-slate-600'}`}
-                                title="Play latest voice note"
-                              >
-                                {playingAudioId === event.id ? <Square className="w-3.5 h-3.5 fill-current" /> : <Play className="w-3.5 h-3.5 fill-current ml-0.5" />}
-                              </button>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2 mt-4">
-                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest mr-1">Attendees:</span>
-                        <div className="flex -space-x-1.5">
-                          {event.memberIds.map(mid => {
-                            const m = members.find(mem => mem.id === mid);
-                            return m ? (
-                              <div key={mid} className="w-8 h-8 rounded-full bg-white border-2 border-slate-50 flex items-center justify-center text-sm shadow-sm hover:scale-110 transition-transform relative z-10 hover:z-20" title={m.name}>
-                                {m.avatar}
-                              </div>
-                            ) : null;
-                          })}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  </div>
-                );
-              })
-            )}
+          {/* Day-by-Day Event List with Progress Bars */}
+          <div className="p-6 sm:p-8">
+            {renderDaySection('Today', today, todayEvents, todayProgress)}
+            {renderDaySection('Tomorrow', tomorrow, tomorrowEvents, tomorrowProgress)}
+            {renderDaySection('Day After Tomorrow', dayAfterTomorrow, dayAfterTomorrowEvents, dayAfterTomorrowProgress)}
           </div>
         </div>
 

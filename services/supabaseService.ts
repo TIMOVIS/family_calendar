@@ -195,6 +195,7 @@ export const familyService = {
       avatar: m.avatar || '👤',
       color: m.color,
       isAdmin: m.role === 'admin',
+      points: m.points || 0,
     }));
   },
 
@@ -203,6 +204,56 @@ export const familyService = {
       .from('members')
       .update(updates)
       .eq('id', memberId);
+
+    if (error) throw error;
+  },
+
+  async addMemberPoints(memberId: string, points: number) {
+    // Get current points
+    const { data: member, error: fetchError } = await supabase
+      .from('members')
+      .select('points')
+      .eq('id', memberId)
+      .single();
+
+    if (fetchError) throw fetchError;
+
+    const currentPoints = member?.points || 0;
+    const newPoints = currentPoints + points;
+
+    const { error } = await supabase
+      .from('members')
+      .update({ points: newPoints })
+      .eq('id', memberId);
+
+    if (error) throw error;
+    return newPoints;
+  },
+
+  async hasCompletedDay(memberId: string, date: Date): Promise<boolean> {
+    const dateStr = date.toISOString().split('T')[0];
+    const { data, error } = await supabase
+      .from('member_completed_days')
+      .select('id')
+      .eq('member_id', memberId)
+      .eq('completed_date', dateStr)
+      .single();
+
+    if (error && error.code !== 'PGRST116') { // PGRST116 = no rows returned
+      throw error;
+    }
+    return !!data;
+  },
+
+  async markDayCompleted(memberId: string, date: Date, points: number = 100) {
+    const dateStr = date.toISOString().split('T')[0];
+    const { error } = await supabase
+      .from('member_completed_days')
+      .insert({
+        member_id: memberId,
+        completed_date: dateStr,
+        points_awarded: points,
+      });
 
     if (error) throw error;
   },
@@ -230,7 +281,7 @@ export const familyService = {
 
 // Event operations
 export const eventService = {
-  async getFamilyEvents(familyId: string) {
+  async getFamilyEvents(familyId: string, memberId?: string, isAdmin?: boolean) {
     const { data: events, error } = await supabase
       .from('events')
       .select(`
@@ -256,7 +307,19 @@ export const eventService = {
       })
     );
 
-    return eventsWithAttendees.map((e: any): CalendarEvent => ({
+    // Filter events based on visibility rules:
+    // - Admins see all events
+    // - Members only see events where they are organizer (created_by) or attendee
+    let filteredEvents = eventsWithAttendees;
+    if (!isAdmin && memberId) {
+      filteredEvents = eventsWithAttendees.filter((e: any) => {
+        const isOrganizer = e.created_by === memberId;
+        const isAttendee = e.memberIds.includes(memberId);
+        return isOrganizer || isAttendee;
+      });
+    }
+
+    return filteredEvents.map((e: any): CalendarEvent => ({
       id: e.id,
       title: e.title,
       description: e.description || undefined,
@@ -265,6 +328,7 @@ export const eventService = {
       location: e.location || undefined,
       category: e.category,
       memberIds: e.memberIds,
+      createdBy: e.created_by,
       audioMessages: e.audioMessages?.map((am: any) => ({
         authorId: am.member_id,
         data: am.data,
