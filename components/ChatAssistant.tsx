@@ -86,6 +86,7 @@ const ChatAssistant: React.FC<ChatAssistantProps> = ({
   const nextStartTimeRef = useRef(0);
   const activeAudioSourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const finalTranscriptRef = useRef<string>('');
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -105,20 +106,159 @@ const ChatAssistant: React.FC<ChatAssistantProps> = ({
   }, [isOpen]);
 
   const startLiveSession = async () => {
-    // Live session feature disabled - API keys must be kept server-side
-    alert('Live voice session is currently disabled. Please use text input instead.');
-    return;
+    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+      alert('Speech recognition is not supported in your browser. Please use Chrome, Edge, or Safari.');
+      return;
+    }
+
+    try {
+      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      const recognition = new SpeechRecognition();
+      
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = 'en-US';
+
+      finalTranscriptRef.current = '';
+
+      recognition.onstart = () => {
+        setIsLive(true);
+        setLiveTranscription({ user: '', model: '' });
+        finalTranscriptRef.current = '';
+      };
+
+      recognition.onresult = (event: any) => {
+        let interimTranscript = '';
+        let hasFinalResult = false;
+        
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const transcript = event.results[i][0].transcript;
+          if (event.results[i].isFinal) {
+            finalTranscriptRef.current += transcript + ' ';
+            hasFinalResult = true;
+          } else {
+            interimTranscript += transcript;
+          }
+        }
+
+        setLiveTranscription(prev => ({ ...prev, user: finalTranscriptRef.current + interimTranscript }));
+        
+        // Process final transcript when we have a final result
+        if (hasFinalResult && finalTranscriptRef.current.trim()) {
+          const transcriptToProcess = finalTranscriptRef.current.trim();
+          finalTranscriptRef.current = ''; // Clear for next utterance
+          processVoiceInput(transcriptToProcess);
+        }
+      };
+
+      recognition.onerror = (event: any) => {
+        console.error('Speech recognition error:', event.error);
+        if (event.error === 'no-speech') {
+          // Ignore no-speech errors, just keep listening
+          return;
+        }
+        setIsLive(false);
+        recognition.stop();
+        alert(`Speech recognition error: ${event.error}. Please try again.`);
+      };
+
+      recognition.onend = () => {
+        if (isLive) {
+          // If we're still supposed to be live, restart recognition
+          try {
+            recognition.start();
+          } catch (e) {
+            // If restart fails, stop live mode
+            setIsLive(false);
+          }
+        }
+      };
+
+
+      // Store recognition in ref so we can stop it
+      liveSessionRef.current = recognition;
+      recognition.start();
+    } catch (error) {
+      console.error('Error starting speech recognition:', error);
+      alert('Failed to start voice mode. Please check your microphone permissions.');
+      setIsLive(false);
+    }
+  };
+
+  const processVoiceInput = async (transcript: string) => {
+    if (!transcript.trim()) return;
+
+    // Add user message
+    const userMsg: ChatMessage = { 
+      id: Date.now().toString(), 
+      role: 'user', 
+      text: transcript, 
+      timestamp: new Date() 
+    };
+    setMessages(prev => [...prev, userMsg]);
+    setLiveTranscription(prev => ({ ...prev, user: '' }));
+    setIsLoading(true);
+
+    try {
+      const response = await generateCalendarAdvice(transcript, events, members);
+      
+      // Show model response in live transcription
+      setLiveTranscription(prev => ({ ...prev, model: response.text || "Done!" }));
+      
+      // Process actions
+      if (response.action) {
+        if (response.action.type === 'ADD' && onAddEvent) onAddEvent(response.action.payload);
+        else if (response.action.type === 'DELETE' && onDeleteEvent) onDeleteEvent(response.action.payload);
+        else if (response.action.type === 'UPDATE' && onUpdateEvent) {
+          const { id, updates } = response.action.payload;
+          const existing = events.find(e => e.id === id);
+          if (existing) {
+             const cleanUpdates = Object.fromEntries(Object.entries(updates).filter(([_, v]) => v !== undefined));
+             onUpdateEvent({ ...existing, ...cleanUpdates });
+          }
+        }
+      }
+      
+      // Add model message to chat
+      setMessages(prev => [...prev, { 
+        id: (Date.now() + 1).toString(), 
+        role: 'model', 
+        text: response.text || "Done!", 
+        timestamp: new Date() 
+      }]);
+      
+      // Clear live transcription after a delay
+      setTimeout(() => {
+        setLiveTranscription(prev => ({ ...prev, model: '' }));
+      }, 3000);
+    } catch (e) {
+      console.error('Error processing voice input:', e);
+      setLiveTranscription(prev => ({ ...prev, model: "Error processing request." }));
+      setMessages(prev => [...prev, { 
+        id: Date.now().toString(), 
+        role: 'model', 
+        text: "Error processing request.", 
+        timestamp: new Date() 
+      }]);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const stopLiveSession = () => {
     setIsLive(false);
     if (liveSessionRef.current) {
-      try { liveSessionRef.current.close(); } catch {}
+      try { 
+        liveSessionRef.current.stop();
+        liveSessionRef.current.abort();
+      } catch (e) {
+        console.error('Error stopping recognition:', e);
+      }
       liveSessionRef.current = null;
     }
     if (audioContextsRef.current) {
-      audioContextsRef.current.input.close().catch(() => {});
-      audioContextsRef.current.output.close().catch(() => {});
+      audioContextsRef.current.input?.close().catch(() => {});
+      audioContextsRef.current.output?.close().catch(() => {});
       audioContextsRef.current = null;
     }
     setLiveTranscription({ user: '', model: '' });
