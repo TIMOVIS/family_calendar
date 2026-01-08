@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, UserPlus, Trash2, Crown, Edit2, Check, AlertCircle } from 'lucide-react';
+import { X, UserPlus, Trash2, Crown, Edit2, Check, AlertCircle, Copy } from 'lucide-react';
 import { FamilyMember, ThemeColor } from '../types';
 import { THEME_OPTIONS, AVAILABLE_AVATARS } from '../constants';
 import { generateId } from '../utils';
@@ -10,6 +10,7 @@ interface FamilyManagerProps {
   members: FamilyMember[];
   onUpdateMembers: (members: FamilyMember[]) => void;
   theme: ThemeColor;
+  joinCode: string | null;
 }
 
 const FamilyManager: React.FC<FamilyManagerProps> = ({
@@ -17,7 +18,8 @@ const FamilyManager: React.FC<FamilyManagerProps> = ({
   onClose,
   members,
   onUpdateMembers,
-  theme
+  theme,
+  joinCode
 }) => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deleteConfirmationId, setDeleteConfirmationId] = useState<string | null>(null);
@@ -26,6 +28,19 @@ const FamilyManager: React.FC<FamilyManagerProps> = ({
   const [newColor, setNewColor] = useState<ThemeColor>(THEME_OPTIONS[0].value);
   const [isAdding, setIsAdding] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const handleCopyJoinCode = async () => {
+    if (joinCode) {
+      try {
+        await navigator.clipboard.writeText(joinCode);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      } catch (err) {
+        console.error('Failed to copy:', err);
+      }
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -159,6 +174,31 @@ const FamilyManager: React.FC<FamilyManagerProps> = ({
 
         {/* Content */}
         <div className="p-6 overflow-y-auto flex-1">
+          {/* Join Code Display */}
+          {joinCode && (
+            <div className={`bg-${theme}-50 border-2 border-${theme}-200 rounded-2xl p-4 mb-6 animate-fade-in-up`}>
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex-1">
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Family Join Code</label>
+                  <div className="flex items-center gap-3">
+                    <code className="text-2xl font-bold text-slate-800 tracking-wider bg-white px-4 py-2 rounded-xl border-2 border-slate-200">
+                      {joinCode}
+                    </code>
+                    <button
+                      onClick={handleCopyJoinCode}
+                      className={`p-2 rounded-xl bg-${theme}-600 text-white hover:bg-${theme}-700 transition-colors flex items-center gap-2`}
+                      title="Copy join code"
+                    >
+                      <Copy className="w-4 h-4" />
+                      {copied ? 'Copied!' : 'Copy'}
+                    </button>
+                  </div>
+                  <p className="text-xs text-slate-600 mt-2">Share this code with family members so they can join</p>
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="space-y-4">
             {members.map(member => (
               <div key={member.id} className="border border-slate-100 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center gap-4 bg-white shadow-sm hover:shadow-md transition-shadow">

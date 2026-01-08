@@ -75,6 +75,7 @@ function App() {
   const [members, setMembers] = useState<FamilyMember[]>([]);
   const [shoppingList, setShoppingList] = useState<ShoppingItem[]>([]);
   const [wishLists, setWishLists] = useState<WishListItem[]>([]);
+  const [familyJoinCode, setFamilyJoinCode] = useState<string | null>(null);
   
   // Refined Search State
   const [searchKeyword, setSearchKeyword] = useState('');
@@ -139,6 +140,12 @@ function App() {
     try {
       setCurrentFamilyId(familyId);
       setCurrentMemberId(memberId);
+      
+      // Load family data (including join code)
+      const familyData = await familyService.getFamily(familyId);
+      if (familyData) {
+        setFamilyJoinCode(familyData.join_code);
+      }
       
       // Load family members
       const familyMembers = await familyService.getFamilyMembers(familyId);
@@ -210,6 +217,7 @@ function App() {
     setEvents([]);
     setShoppingList([]);
     setWishLists([]);
+    setFamilyJoinCode(null);
     setTheme('indigo'); 
     setViewMode('home');
     setIsSettingsOpen(false);
@@ -369,48 +377,38 @@ function App() {
     const event = events.find(e => e.id === eventId);
     if (!event) return;
 
+    // Check if the member is involved in this event (created it or is an attendee)
+    const isInvolved = event.createdBy === currentMemberId || event.memberIds.includes(currentMemberId);
+    if (!isInvolved) {
+      alert('You can only mark events as completed if you are involved in them.');
+      return;
+    }
+
+    // Store the previous completion state
+    const wasCompleted = event.isCompleted || false;
+    const willBeCompleted = !wasCompleted;
+
     try {
-      await eventService.updateEvent(eventId, { isCompleted: !event.isCompleted });
+      await eventService.updateEvent(eventId, { isCompleted: willBeCompleted });
       // Refresh events
       const familyEvents = await eventService.getFamilyEvents(currentFamilyId, currentMemberId, currentUser?.isAdmin);
       setEvents(familyEvents);
 
-      // Check if all events for this day are completed and award points
-      const eventDate = new Date(event.start);
-      eventDate.setHours(0, 0, 0, 0);
-      
-      // Get all events for this day that the member is involved in
-      const dayEvents = familyEvents.filter(e => {
-        const eDate = new Date(e.start);
-        eDate.setHours(0, 0, 0, 0);
-        const isSameDay = eDate.getTime() === eventDate.getTime();
-        const isInvolved = e.createdBy === currentMemberId || e.memberIds.includes(currentMemberId);
-        return isSameDay && isInvolved;
-      });
-
-      // Check if all events for this day are completed
-      const allCompleted = dayEvents.length > 0 && dayEvents.every(e => e.isCompleted);
-      
-      if (allCompleted) {
-        // Check if points have already been awarded for this day
-        const alreadyAwarded = await familyService.hasCompletedDay(currentMemberId, eventDate);
+      // Award 5 points when a task is marked as completed (transitioning from incomplete to complete)
+      if (willBeCompleted && !wasCompleted) {
+        // Award 5 points for completing this task
+        await familyService.addMemberPoints(currentMemberId, 5);
         
-        if (!alreadyAwarded) {
-          // Award 100 points
-          await familyService.addMemberPoints(currentMemberId, 100);
-          await familyService.markDayCompleted(currentMemberId, eventDate, 100);
-          
-          // Refresh member data to update points display
-          const familyMembers = await familyService.getFamilyMembers(currentFamilyId);
-          setMembers(familyMembers);
-          const updatedMember = familyMembers.find(m => m.id === currentMemberId);
-          if (updatedMember) {
-            setCurrentUser(updatedMember);
-          }
-          
-          // Show celebration message
-          alert(`🎉 Congratulations! You completed all events for ${formatDate(eventDate)} and earned 100 points!`);
+        // Refresh member data to update points display
+        const familyMembers = await familyService.getFamilyMembers(currentFamilyId);
+        setMembers(familyMembers);
+        const updatedMember = familyMembers.find(m => m.id === currentMemberId);
+        if (updatedMember) {
+          setCurrentUser(updatedMember);
         }
+        
+        // Show celebration message
+        alert(`🎉 Great job! You completed "${event.title}" and earned 5 points!`);
       }
     } catch (error) {
       console.error('Error toggling event completion:', error);
@@ -1166,6 +1164,7 @@ function App() {
       <FamilyManager
         isOpen={isFamilyManagerOpen} onClose={() => setIsFamilyManagerOpen(false)}
         members={members} onUpdateMembers={setMembers} theme={theme}
+        joinCode={familyJoinCode}
       />
       
       <EditProfileModal isOpen={isProfileModalOpen} onClose={() => setIsProfileModalOpen(false)} currentUser={currentUser} onUpdate={handleUpdateProfile} />
