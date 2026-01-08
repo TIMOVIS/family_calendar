@@ -253,10 +253,28 @@ function App() {
     setIsSettingsOpen(false);
   };
 
-  const handleUpdateProfile = (updatedMember: FamilyMember) => {
-    setMembers(prev => prev.map(m => m.id === updatedMember.id ? updatedMember : m));
-    setCurrentUser(updatedMember);
-    setTheme(updatedMember.color);
+  const handleUpdateProfile = async (updatedMember: FamilyMember) => {
+    if (!currentMemberId || updatedMember.id !== currentMemberId) {
+      console.error('Cannot update profile: member ID mismatch');
+      return;
+    }
+
+    try {
+      // Save to database
+      await familyService.updateMember(updatedMember.id, {
+        name: updatedMember.name,
+        avatar: updatedMember.avatar,
+        color: updatedMember.color,
+      });
+
+      // Update local state
+      setMembers(prev => prev.map(m => m.id === updatedMember.id ? updatedMember : m));
+      setCurrentUser(updatedMember);
+      setTheme(updatedMember.color);
+    } catch (error) {
+      console.error('Error updating profile:', error);
+      alert('Failed to save profile changes. Please try again.');
+    }
   };
 
   const clearFilters = () => {
@@ -289,12 +307,101 @@ function App() {
   };
 
   // List Handlers
-  const handleAddShoppingItem = (item: ShoppingItem) => setShoppingList(prev => [item, ...prev]);
-  const handleToggleShoppingItem = (id: string) => setShoppingList(prev => prev.map(item => item.id === id ? { ...item, isCompleted: !item.isCompleted } : item));
-  const handleDeleteShoppingItem = (id: string) => setShoppingList(prev => prev.filter(item => item.id !== id));
+  const handleAddShoppingItem = async (item: ShoppingItem) => {
+    if (!currentFamilyId) {
+      alert('Not authenticated');
+      return;
+    }
+
+    try {
+      // Save to database
+      const savedItemData = await shoppingService.createShoppingItem(currentFamilyId, item);
+      // Map database response to app format
+      const savedItem: ShoppingItem = {
+        id: savedItemData.id,
+        name: savedItemData.name,
+        urgency: savedItemData.urgency,
+        neededBy: savedItemData.needed_by ? new Date(savedItemData.needed_by) : undefined,
+        addedBy: savedItemData.added_by,
+        isCompleted: savedItemData.is_completed,
+        image: savedItemData.image || undefined,
+        link: savedItemData.link || undefined,
+        comments: savedItemData.comments || undefined,
+      };
+      // Update local state with the saved item (which has the database ID)
+      setShoppingList(prev => [savedItem, ...prev]);
+    } catch (error) {
+      console.error('Error adding shopping item:', error);
+      alert('Failed to add shopping item. Please try again.');
+    }
+  };
+
+  const handleToggleShoppingItem = async (id: string) => {
+    const item = shoppingList.find(i => i.id === id);
+    if (!item) return;
+
+    try {
+      // Update in database
+      await shoppingService.updateShoppingItem(id, { isCompleted: !item.isCompleted });
+      // Update local state
+      setShoppingList(prev => prev.map(item => item.id === id ? { ...item, isCompleted: !item.isCompleted } : item));
+    } catch (error) {
+      console.error('Error toggling shopping item:', error);
+      alert('Failed to update shopping item. Please try again.');
+    }
+  };
+
+  const handleDeleteShoppingItem = async (id: string) => {
+    try {
+      // Delete from database
+      await shoppingService.deleteShoppingItem(id);
+      // Update local state
+      setShoppingList(prev => prev.filter(item => item.id !== id));
+    } catch (error) {
+      console.error('Error deleting shopping item:', error);
+      alert('Failed to delete shopping item. Please try again.');
+    }
+  };
   
-  const handleAddWishItem = (item: WishListItem) => setWishLists(prev => [item, ...prev]);
-  const handleDeleteWishItem = (id: string) => setWishLists(prev => prev.filter(item => item.id !== id));
+  const handleAddWishItem = async (item: WishListItem) => {
+    if (!currentFamilyId) {
+      alert('Not authenticated');
+      return;
+    }
+
+    try {
+      // Save to database
+      const savedItemData = await wishListService.createWishListItem(currentFamilyId, item);
+      // Map database response to app format
+      const savedItem: WishListItem = {
+        id: savedItemData.id,
+        name: savedItemData.name,
+        occasion: savedItemData.occasion || undefined,
+        priority: savedItemData.priority,
+        ownerId: savedItemData.owner_id,
+        link: savedItemData.link || undefined,
+        image: savedItemData.image || undefined,
+        comments: savedItemData.comments || undefined,
+      };
+      // Update local state with the saved item (which has the database ID)
+      setWishLists(prev => [savedItem, ...prev]);
+    } catch (error) {
+      console.error('Error adding wish list item:', error);
+      alert('Failed to add wish list item. Please try again.');
+    }
+  };
+
+  const handleDeleteWishItem = async (id: string) => {
+    try {
+      // Delete from database
+      await wishListService.deleteWishListItem(id);
+      // Update local state
+      setWishLists(prev => prev.filter(item => item.id !== id));
+    } catch (error) {
+      console.error('Error deleting wish list item:', error);
+      alert('Failed to delete wish list item. Please try again.');
+    }
+  };
 
   // Calendar Sync Handlers
   const handleExportCalendar = () => downloadICS(events);

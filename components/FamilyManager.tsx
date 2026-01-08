@@ -3,6 +3,7 @@ import { X, UserPlus, Trash2, Crown, Edit2, Check, AlertCircle, Copy } from 'luc
 import { FamilyMember, ThemeColor } from '../types';
 import { THEME_OPTIONS, AVAILABLE_AVATARS } from '../constants';
 import { generateId } from '../utils';
+import { familyService } from '../services/supabaseService';
 
 interface FamilyManagerProps {
   isOpen: boolean;
@@ -58,8 +59,22 @@ const FamilyManager: React.FC<FamilyManagerProps> = ({
     setIsAdding(false);
   };
 
-  const handleUpdateMember = (id: string, updates: Partial<FamilyMember>) => {
-    onUpdateMembers(members.map(m => m.id === id ? { ...m, ...updates } : m));
+  const handleUpdateMember = async (id: string, updates: Partial<FamilyMember>) => {
+    try {
+      // Save to database
+      await familyService.updateMember(id, {
+        name: updates.name,
+        avatar: updates.avatar,
+        color: updates.color,
+      });
+
+      // Update local state
+      onUpdateMembers(members.map(m => m.id === id ? { ...m, ...updates } : m));
+    } catch (error) {
+      console.error('Error updating member:', error);
+      setErrorMsg('Failed to save changes. Please try again.');
+      setTimeout(() => setErrorMsg(null), 3000);
+    }
   };
 
   const initiateDelete = (member: FamilyMember) => {
