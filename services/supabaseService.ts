@@ -268,13 +268,27 @@ export const familyService = {
   },
 
   async getFamily(familyId: string) {
+    console.log('getFamily called with familyId:', familyId);
     const { data, error } = await supabase
       .from('families')
       .select('*')
       .eq('id', familyId)
       .single();
 
-    if (error) throw error;
+    if (error) {
+      console.error('Error fetching family:', error);
+      console.error('Error code:', error.code);
+      console.error('Error message:', error.message);
+      console.error('Error details:', error.details);
+      throw error;
+    }
+
+    if (!data) {
+      console.warn('No family data returned for familyId:', familyId);
+      return null;
+    }
+
+    console.log('Family data retrieved:', { id: data.id, name: data.name, join_code: data.join_code });
     return data;
   },
 };
@@ -406,15 +420,50 @@ export const eventService = {
     if (updates.category !== undefined) updateData.category = updates.category;
     if (updates.isCompleted !== undefined) updateData.is_completed = updates.isCompleted;
 
-    const { error } = await supabase
+    console.log('Updating event:', eventId, 'with data:', updateData);
+
+    // First, verify the event exists and we can access it
+    const { data: existingEvent, error: checkError } = await supabase
+      .from('events')
+      .select('id, created_by, family_id')
+      .eq('id', eventId)
+      .single();
+
+    if (checkError) {
+      console.error('Error checking event existence:', checkError);
+      console.error('Event ID:', eventId);
+      throw new Error(`Event not found or access denied: ${checkError.message}`);
+    }
+
+    if (!existingEvent) {
+      throw new Error(`Event with ID ${eventId} not found`);
+    }
+
+    // Now perform the update
+    const { data, error } = await supabase
       .from('events')
       .update(updateData)
-      .eq('id', eventId);
+      .eq('id', eventId)
+      .select();
 
     if (error) {
       console.error('Error updating event:', error);
-      throw error;
+      console.error('Event ID:', eventId);
+      console.error('Update data:', updateData);
+      console.error('Error code:', error.code);
+      console.error('Error message:', error.message);
+      console.error('Error details:', error.details);
+      throw new Error(`Failed to update event: ${error.message || 'Unknown error'}. This might be due to Row Level Security (RLS) policies. Please check your Supabase RLS policies allow updates for event creators and attendees.`);
     }
+
+    // Check if any rows were actually updated
+    if (!data || data.length === 0) {
+      const errorMsg = `Event with ID ${eventId} was not updated. This could be due to Row Level Security (RLS) policies blocking the update. Please ensure your RLS policies allow updates for event creators and attendees.`;
+      console.error(errorMsg);
+      throw new Error(errorMsg);
+    }
+
+    console.log('Event updated successfully:', data[0]);
 
     // Handle memberIds update separately
     if (updates.memberIds !== undefined) {

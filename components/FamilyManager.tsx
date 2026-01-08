@@ -175,7 +175,7 @@ const FamilyManager: React.FC<FamilyManagerProps> = ({
         {/* Content */}
         <div className="p-6 overflow-y-auto flex-1">
           {/* Join Code Display */}
-          {joinCode && (
+          {joinCode ? (
             <div className={`bg-${theme}-50 border-2 border-${theme}-200 rounded-2xl p-4 mb-6 animate-fade-in-up`}>
               <div className="flex items-center justify-between gap-4">
                 <div className="flex-1">
@@ -194,6 +194,16 @@ const FamilyManager: React.FC<FamilyManagerProps> = ({
                     </button>
                   </div>
                   <p className="text-xs text-slate-600 mt-2">Share this code with family members so they can join</p>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="bg-yellow-50 border-2 border-yellow-200 rounded-2xl p-4 mb-6 animate-fade-in-up">
+              <div className="flex items-center gap-2">
+                <AlertCircle className="w-5 h-5 text-yellow-600" />
+                <div>
+                  <p className="text-sm font-bold text-yellow-800">Join code not available</p>
+                  <p className="text-xs text-yellow-600 mt-1">The join code could not be loaded. Please refresh the page or check the console for errors.</p>
                 </div>
               </div>
             </div>

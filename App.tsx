@@ -134,6 +134,28 @@ function App() {
     };
   }, []);
 
+  // Fetch join code when Family Manager is opened (fallback if not loaded initially)
+  useEffect(() => {
+    const fetchJoinCode = async () => {
+      if (isFamilyManagerOpen && currentFamilyId && !familyJoinCode) {
+        try {
+          console.log('Fetching join code for family:', currentFamilyId);
+          const familyData = await familyService.getFamily(currentFamilyId);
+          if (familyData && familyData.join_code) {
+            console.log('Loaded family join code:', familyData.join_code);
+            setFamilyJoinCode(familyData.join_code);
+          } else {
+            console.warn('Family data loaded but no join_code found:', familyData);
+          }
+        } catch (error) {
+          console.error('Error fetching join code:', error);
+        }
+      }
+    };
+
+    fetchJoinCode();
+  }, [isFamilyManagerOpen, currentFamilyId, familyJoinCode]);
+
   // Authentication Handler
   const handleAuthenticated = async (userId: string, familyId: string, memberId: string) => {
     setIsLoading(true);
@@ -142,9 +164,17 @@ function App() {
       setCurrentMemberId(memberId);
       
       // Load family data (including join code)
-      const familyData = await familyService.getFamily(familyId);
-      if (familyData) {
-        setFamilyJoinCode(familyData.join_code);
+      try {
+        const familyData = await familyService.getFamily(familyId);
+        if (familyData && familyData.join_code) {
+          console.log('Loaded family join code:', familyData.join_code);
+          setFamilyJoinCode(familyData.join_code);
+        } else {
+          console.warn('Family data loaded but no join_code found:', familyData);
+        }
+      } catch (error) {
+        console.error('Error loading family data (join code):', error);
+        // Don't block the rest of the loading if this fails
       }
       
       // Load family members
@@ -410,9 +440,11 @@ function App() {
         // Show celebration message
         alert(`🎉 Great job! You completed "${event.title}" and earned 5 points!`);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error toggling event completion:', error);
-      alert('Failed to update event. Please try again.');
+      const errorMessage = error?.message || error?.details || 'Failed to update event. Please try again.';
+      console.error('Full error object:', error);
+      alert(`Failed to update event: ${errorMessage}`);
     }
   };
   
