@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { X, Send, Sparkles, Mic, MicOff, Volume2, VolumeX, Play, Square } from 'lucide-react';
+import { X, Send, Sparkles, Mic, MicOff, Volume2, VolumeX, Play, Square, Upload, FileText, XCircle } from 'lucide-react';
 import { CalendarEvent, FamilyMember, ChatMessage, ThemeColor, EventCategory } from '../types';
 import { generateCalendarAdvice, addEventTool, updateEventTool, deleteEventTool } from '../services/geminiService';
 // Live session feature disabled - using serverless function instead
@@ -72,11 +72,13 @@ const ChatAssistant: React.FC<ChatAssistantProps> = ({
     {
       id: 'welcome',
       role: 'model',
-      text: "Hi! I'm your fam.ly assistant. I can add, edit, or delete events for you! 📅✨",
+      text: "Hi! I'm your fam.ly assistant. I can add, edit, or delete events for you! 📅✨ You can also upload a file (like a learning plan) and I'll help create events from it!",
       timestamp: new Date()
     }
   ]);
   const [isLoading, setIsLoading] = useState(false);
+  const [uploadedFile, setUploadedFile] = useState<{ name: string; content: string } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   
   // Live Voice State
   const [isLive, setIsLive] = useState(false);
@@ -200,7 +202,7 @@ const ChatAssistant: React.FC<ChatAssistantProps> = ({
     setIsLoading(true);
 
     try {
-      const response = await generateCalendarAdvice(transcript, events, members);
+      const response = await generateCalendarAdvice(transcript, events, members, undefined);
       
       // Show model response in live transcription
       setLiveTranscription(prev => ({ ...prev, model: response.text || "Done!" }));
@@ -264,20 +266,97 @@ const ChatAssistant: React.FC<ChatAssistantProps> = ({
     setLiveTranscription({ user: '', model: '' });
   };
 
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Check file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      alert('File size must be less than 5MB');
+      return;
+    }
+
+    try {
+      let content = '';
+      const fileName = file.name;
+
+      // Read file content based on type
+      if (file.type === 'text/plain' || fileName.endsWith('.txt')) {
+        content = await file.text();
+      } else if (file.type === 'application/pdf' || fileName.endsWith('.pdf')) {
+        // For PDF, we'll need to extract text - for now, show a message
+        alert('PDF files are supported, but text extraction may be limited. Please use a text file (.txt) for best results.');
+        return;
+      } else if (file.type.includes('text/') || fileName.endsWith('.md') || fileName.endsWith('.csv')) {
+        content = await file.text();
+      } else {
+        // Try to read as text anyway
+        content = await file.text();
+      }
+
+      setUploadedFile({ name: fileName, content });
+      
+      // Automatically send a message about the file
+      const fileMessage = `I've uploaded a file: ${fileName}. Please analyze it and help me create calendar events.`;
+      setInput(fileMessage);
+      
+      // Show user message
+      const userMsg: ChatMessage = { 
+        id: Date.now().toString(), 
+        role: 'user', 
+        text: `📎 Uploaded: ${fileName}`, 
+        timestamp: new Date() 
+      };
+      setMessages(prev => [...prev, userMsg]);
+      
+    } catch (error) {
+      console.error('Error reading file:', error);
+      alert('Failed to read file. Please try again.');
+    }
+  };
+
+  const handleRemoveFile = () => {
+    setUploadedFile(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
   const handleSend = async () => {
-    if (!input.trim() || isLoading) return;
-    const userMsg: ChatMessage = { id: Date.now().toString(), role: 'user', text: input, timestamp: new Date() };
+    if ((!input.trim() && !uploadedFile) || isLoading) return;
+    
+    const messageText = input.trim() || (uploadedFile ? `Please analyze the uploaded file "${uploadedFile.name}" and help create calendar events.` : '');
+    const userMsg: ChatMessage = { 
+      id: Date.now().toString(), 
+      role: 'user', 
+      text: messageText, 
+      timestamp: new Date() 
+    };
     setMessages(prev => [...prev, userMsg]);
+    
+    const currentFile = uploadedFile;
     setInput('');
+    if (currentFile) {
+      setUploadedFile(null);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
     setIsLoading(true);
 
     try {
-      const response = await generateCalendarAdvice(input, events, members);
-      if (response.action) {
-        if (response.action.type === 'ADD' && onAddEvent) onAddEvent(response.action.payload);
-        else if (response.action.type === 'DELETE' && onDeleteEvent) onDeleteEvent(response.action.payload);
-        else if (response.action.type === 'UPDATE' && onUpdateEvent) {
-          const { id, updates } = response.action.payload;
+      const response = await generateCalendarAdvice(messageText, events, members, currentFile?.content);
+      
+      // Handle multiple actions (for file uploads that create multiple events)
+      const actionsToProcess = (response as any).actions || (response.action ? [response.action] : []);
+      
+      for (const action of actionsToProcess) {
+        if (action.type === 'ADD' && onAddEvent) {
+          onAddEvent(action.payload);
+        } else if (action.type === 'DELETE' && onDeleteEvent) {
+          onDeleteEvent(action.payload);
+        } else if (action.type === 'UPDATE' && onUpdateEvent) {
+          const { id, updates } = action.payload;
           const existing = events.find(e => e.id === id);
           if (existing) {
              const cleanUpdates = Object.fromEntries(Object.entries(updates).filter(([_, v]) => v !== undefined));
@@ -285,6 +364,7 @@ const ChatAssistant: React.FC<ChatAssistantProps> = ({
           }
         }
       }
+      
       setMessages(prev => [...prev, { id: (Date.now() + 1).toString(), role: 'model', text: response.text || "Done!", timestamp: new Date() }]);
     } catch (e) {
       setMessages(prev => [...prev, { id: Date.now().toString(), role: 'model', text: "Error processing request.", timestamp: new Date() }]);
@@ -346,10 +426,41 @@ const ChatAssistant: React.FC<ChatAssistantProps> = ({
       </div>
 
       {!isLive ? (
-        <div className="p-4 bg-white border-t border-slate-100">
+        <div className="p-4 bg-white border-t border-slate-100 space-y-2">
+          {uploadedFile && (
+            <div className={`flex items-center gap-2 p-2 bg-${theme}-50 rounded-lg border border-${theme}-200`}>
+              <FileText className={`w-4 h-4 text-${theme}-600`} />
+              <span className="text-xs font-medium text-slate-700 flex-1 truncate">{uploadedFile.name}</span>
+              <button onClick={handleRemoveFile} className={`p-1 hover:bg-${theme}-100 rounded-full transition-colors`}>
+                <XCircle className={`w-4 h-4 text-${theme}-600`} />
+              </button>
+            </div>
+          )}
           <div className="flex gap-2">
-            <input type="text" value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSend()} placeholder="Ask anything..." className={`flex-1 border border-slate-200 rounded-full px-4 py-2 text-sm focus:ring-2 focus:ring-${theme}-500 outline-none`} />
-            <button onClick={handleSend} disabled={isLoading || !input.trim()} className={`bg-${theme}-600 text-white p-2 rounded-full shadow-md active:scale-95 disabled:opacity-50`}><Send className="w-5 h-5" /></button>
+            <input 
+              type="file" 
+              ref={fileInputRef}
+              onChange={handleFileUpload}
+              accept=".txt,.pdf,.md,.csv,.doc,.docx"
+              className="hidden"
+              id="file-upload"
+            />
+            <label 
+              htmlFor="file-upload"
+              className={`p-2 border border-slate-200 rounded-full hover:bg-slate-50 cursor-pointer transition-colors`}
+              title="Upload file"
+            >
+              <Upload className="w-5 h-5 text-slate-600" />
+            </label>
+            <input 
+              type="text" 
+              value={input} 
+              onChange={(e) => setInput(e.target.value)} 
+              onKeyDown={(e) => e.key === 'Enter' && handleSend()} 
+              placeholder={uploadedFile ? "Ask about the file or send to process..." : "Ask anything or upload a file..."} 
+              className={`flex-1 border border-slate-200 rounded-full px-4 py-2 text-sm focus:ring-2 focus:ring-${theme}-500 outline-none`} 
+            />
+            <button onClick={handleSend} disabled={isLoading || (!input.trim() && !uploadedFile)} className={`bg-${theme}-600 text-white p-2 rounded-full shadow-md active:scale-95 disabled:opacity-50`}><Send className="w-5 h-5" /></button>
           </div>
         </div>
       ) : (

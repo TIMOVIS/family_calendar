@@ -8,7 +8,7 @@ interface AuthScreenProps {
 }
 
 const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
-  const [mode, setMode] = useState<'select' | 'admin' | 'memberLogin' | 'memberJoin'>('select');
+  const [mode, setMode] = useState<'select' | 'admin' | 'memberLogin' | 'memberJoin' | 'forgotPassword' | 'resetPassword'>('select');
   
   // Admin mode states
   const [isSignUp, setIsSignUp] = useState(false);
@@ -19,6 +19,12 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
   // Member login mode states
   const [memberEmail, setMemberEmail] = useState('');
   const [memberPassword, setMemberPassword] = useState('');
+  
+  // Forgot password mode states
+  const [resetEmail, setResetEmail] = useState('');
+  const [resetPassword, setResetPassword] = useState('');
+  const [confirmResetPassword, setConfirmResetPassword] = useState('');
+  const [resetSuccess, setResetSuccess] = useState(false);
   
   // Member join mode states (for first time joining)
   const [joinName, setJoinName] = useState('');
@@ -235,6 +241,107 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
     });
   };
 
+  // Forgot password: Request reset
+  const handleForgotPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+
+    try {
+      if (!resetEmail.trim()) {
+        setError('Please enter your email address');
+        return;
+      }
+
+      const { error: resetError } = await authService.resetPassword(resetEmail.trim());
+      if (resetError) throw resetError;
+
+      setResetSuccess(true);
+      setError('');
+    } catch (err: any) {
+      setError(err.message || 'Failed to send reset email. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Reset password: Update password
+  const handleResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+
+    if (!resetPassword || !confirmResetPassword) {
+      setError('Please enter and confirm your new password');
+      return;
+    }
+
+    if (resetPassword.length < 6) {
+      setError('Password must be at least 6 characters');
+      return;
+    }
+
+    if (resetPassword !== confirmResetPassword) {
+      setError('Passwords do not match');
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      const { error: updateError } = await authService.updatePassword(resetPassword);
+      if (updateError) throw updateError;
+
+      // After successful password reset, try to get user and authenticate
+      setResetSuccess(true);
+      
+      // Wait a moment for the session to be established
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        // User is authenticated, try to load their families
+        try {
+          const families = await familyService.getUserFamilies(user.id);
+          if (families.length > 0) {
+            // Auto-login if they have a family
+            onAuthenticated(user.id, families[0].family.id, families[0].id);
+            return;
+          }
+        } catch (err) {
+          console.error('Error loading families after password reset:', err);
+        }
+      }
+      
+      // If no auto-login, redirect to login after delay
+      setTimeout(() => {
+        setMode('select');
+        setResetPassword('');
+        setConfirmResetPassword('');
+        setResetSuccess(false);
+      }, 3000);
+    } catch (err: any) {
+      setError(err.message || 'Failed to reset password. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Check if we're on a password reset link
+  useEffect(() => {
+    const checkResetToken = async () => {
+      const hashParams = new URLSearchParams(window.location.hash.substring(1));
+      const accessToken = hashParams.get('access_token');
+      const type = hashParams.get('type');
+
+      if (type === 'recovery' && accessToken) {
+        // User clicked the reset link from email
+        setMode('resetPassword');
+      }
+    };
+
+    checkResetToken();
+  }, []);
+
   if (loading && !showFamilySelection) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500">
@@ -414,6 +521,22 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
               </div>
             </div>
 
+            {!isSignUp && (
+              <div className="text-center">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMode('forgotPassword');
+                    setError('');
+                    setResetEmail(adminEmail); // Pre-fill with admin email
+                  }}
+                  className="text-white/80 hover:text-white text-sm underline"
+                >
+                  Forgot password?
+                </button>
+              </div>
+            )}
+
             {error && (
               <div className="bg-red-500/20 border border-red-500/50 rounded-xl p-4 text-red-100 text-sm">
                 {error}
@@ -545,7 +668,17 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
           </form>
 
           <div className="mt-6 space-y-3">
-            <div className="text-center">
+            <div className="text-center space-y-2">
+              <button
+                onClick={() => {
+                  setMode('forgotPassword');
+                  setError('');
+                  setResetEmail(memberEmail); // Pre-fill with login email
+                }}
+                className="text-white/80 hover:text-white text-sm underline block w-full"
+              >
+                Forgot password?
+              </button>
               <button
                 onClick={() => {
                   setMode('memberJoin');
@@ -553,7 +686,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
                   setMemberEmail('');
                   setMemberPassword('');
                 }}
-                className="text-white/80 hover:text-white text-sm underline"
+                className="text-white/80 hover:text-white text-sm underline block w-full"
               >
                 Join a family for the first time
               </button>
@@ -694,6 +827,207 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
               </button>
             </div>
           </form>
+        </div>
+      </div>
+    );
+  }
+
+  // Forgot Password mode: Request password reset
+  if (mode === 'forgotPassword') {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 flex flex-col items-center justify-center p-4">
+        <div className="bg-white/10 backdrop-blur-lg rounded-[2.5rem] p-8 sm:p-12 shadow-2xl max-w-md w-full border border-white/20 animate-fade-in-up">
+          <div className="text-center mb-8">
+            <div className="flex justify-center mb-6">
+              <div className="w-20 h-20 bg-white/20 rounded-full flex items-center justify-center">
+                <Key className="w-10 h-10 text-indigo-300" />
+              </div>
+            </div>
+            <h2 className="text-3xl font-bold text-white mb-2">Reset Password</h2>
+            <p className="text-indigo-100">
+              {resetSuccess 
+                ? 'Check your email for a password reset link!' 
+                : 'Enter your email and we\'ll send you a reset link'}
+            </p>
+          </div>
+
+          {resetSuccess ? (
+            <div className="space-y-4">
+              <div className="bg-green-500/20 border border-green-500/50 rounded-xl p-4 text-green-100 text-sm text-center">
+                <p className="mb-2">✅ Password reset email sent!</p>
+                <p>Please check your email and click the link to reset your password.</p>
+              </div>
+              <button
+                onClick={() => {
+                  setMode('select');
+                  setResetEmail('');
+                  setResetSuccess(false);
+                  setError('');
+                }}
+                className="w-full bg-white text-indigo-600 py-3 rounded-xl font-bold hover:bg-indigo-50 transition-all"
+              >
+                Back to Login
+              </button>
+            </div>
+          ) : (
+            <form onSubmit={handleForgotPassword} className="space-y-4">
+              <div>
+                <label className="block text-white/90 text-sm font-medium mb-2">Email</label>
+                <div className="relative">
+                  <Mail className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-indigo-200" />
+                  <input
+                    type="email"
+                    value={resetEmail}
+                    onChange={(e) => setResetEmail(e.target.value)}
+                    required
+                    placeholder="your@email.com"
+                    className="w-full bg-white/20 border border-white/30 rounded-xl pl-12 pr-4 py-3 text-white placeholder-indigo-200 focus:outline-none focus:ring-2 focus:ring-white/50"
+                    autoFocus
+                  />
+                </div>
+              </div>
+
+              {error && (
+                <div className="bg-red-500/20 border border-red-500/50 rounded-xl p-4 text-red-100 text-sm">
+                  {error}
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={loading || !resetEmail.trim()}
+                className="w-full bg-white text-indigo-600 py-3 rounded-xl font-bold hover:bg-indigo-50 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {loading ? (
+                  <>
+                    <div className="w-5 h-5 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+                    Sending reset link...
+                  </>
+                ) : (
+                  <>
+                    Send Reset Link
+                    <ArrowRight className="w-5 h-5" />
+                  </>
+                )}
+              </button>
+            </form>
+          )}
+
+          <div className="mt-6">
+            <button
+              onClick={() => {
+                setMode('select');
+                setResetEmail('');
+                setError('');
+                setResetSuccess(false);
+              }}
+              className="w-full text-white/80 hover:text-white text-sm underline"
+            >
+              ← Back to options
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Reset Password mode: Set new password (from email link)
+  if (mode === 'resetPassword') {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 flex flex-col items-center justify-center p-4">
+        <div className="bg-white/10 backdrop-blur-lg rounded-[2.5rem] p-8 sm:p-12 shadow-2xl max-w-md w-full border border-white/20 animate-fade-in-up">
+          <div className="text-center mb-8">
+            <div className="flex justify-center mb-6">
+              <div className="w-20 h-20 bg-white/20 rounded-full flex items-center justify-center">
+                <Lock className="w-10 h-10 text-indigo-300" />
+              </div>
+            </div>
+            <h2 className="text-3xl font-bold text-white mb-2">Set New Password</h2>
+            <p className="text-indigo-100">Enter your new password below</p>
+          </div>
+
+          {resetSuccess ? (
+            <div className="space-y-4">
+              <div className="bg-green-500/20 border border-green-500/50 rounded-xl p-4 text-green-100 text-sm text-center">
+                <p>✅ Password reset successfully!</p>
+                <p className="mt-2">Redirecting to login...</p>
+              </div>
+            </div>
+          ) : (
+            <form onSubmit={handleResetPassword} className="space-y-4">
+              <div>
+                <label className="block text-white/90 text-sm font-medium mb-2">New Password</label>
+                <div className="relative">
+                  <Lock className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-indigo-200" />
+                  <input
+                    type="password"
+                    value={resetPassword}
+                    onChange={(e) => setResetPassword(e.target.value)}
+                    required
+                    placeholder="Enter new password"
+                    minLength={6}
+                    className="w-full bg-white/20 border border-white/30 rounded-xl pl-12 pr-4 py-3 text-white placeholder-indigo-200 focus:outline-none focus:ring-2 focus:ring-white/50"
+                    autoFocus
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-white/90 text-sm font-medium mb-2">Confirm New Password</label>
+                <div className="relative">
+                  <Lock className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-indigo-200" />
+                  <input
+                    type="password"
+                    value={confirmResetPassword}
+                    onChange={(e) => setConfirmResetPassword(e.target.value)}
+                    required
+                    placeholder="Confirm new password"
+                    minLength={6}
+                    className="w-full bg-white/20 border border-white/30 rounded-xl pl-12 pr-4 py-3 text-white placeholder-indigo-200 focus:outline-none focus:ring-2 focus:ring-white/50"
+                  />
+                </div>
+              </div>
+
+              {error && (
+                <div className="bg-red-500/20 border border-red-500/50 rounded-xl p-4 text-red-100 text-sm">
+                  {error}
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={loading || !resetPassword || !confirmResetPassword}
+                className="w-full bg-white text-indigo-600 py-3 rounded-xl font-bold hover:bg-indigo-50 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {loading ? (
+                  <>
+                    <div className="w-5 h-5 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+                    Resetting password...
+                  </>
+                ) : (
+                  <>
+                    Reset Password
+                    <ArrowRight className="w-5 h-5" />
+                  </>
+                )}
+              </button>
+            </form>
+          )}
+
+          <div className="mt-6">
+            <button
+              onClick={() => {
+                setMode('select');
+                setResetPassword('');
+                setConfirmResetPassword('');
+                setError('');
+                setResetSuccess(false);
+              }}
+              className="w-full text-white/80 hover:text-white text-sm underline"
+            >
+              ← Back to login
+            </button>
+          </div>
         </div>
       </div>
     );

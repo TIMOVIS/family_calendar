@@ -97,15 +97,15 @@ export const handler: Handler = async (event, context) => {
 
     const ai = new GoogleGenAI({ apiKey });
 
-    const { userMessage, events, members } = JSON.parse(event.body || '{}');
+    const { userMessage, fileContent, events, members } = JSON.parse(event.body || '{}');
 
-    if (!userMessage) {
+    if (!userMessage && !fileContent) {
       return {
         statusCode: 400,
         headers: {
           'Access-Control-Allow-Origin': '*',
         },
-        body: JSON.stringify({ error: 'userMessage is required' }),
+        body: JSON.stringify({ error: 'userMessage or fileContent is required' }),
       };
     }
 
@@ -119,7 +119,7 @@ export const handler: Handler = async (event, context) => {
       attendees: e.memberIds.map((mid: string) => members.find((m: any) => m.id === mid)?.name || mid).join(', ')
     }));
 
-    const systemPrompt = `
+    let systemPrompt = `
       You are fam.ly, a family calendar assistant.
       Current Date/Time: ${new Date().toLocaleString()}
       
@@ -133,6 +133,7 @@ export const handler: Handler = async (event, context) => {
       2. Handle specific search queries like "When is Mia's practice?" or "What's happening on Monday?".
       3. Identify events by attendee names, times (e.g., "at 10am"), or dates.
       4. ADD, EDIT, or DELETE events using the provided tools.
+      5. Analyze uploaded files (like learning plans, schedules, etc.) and create calendar events from them.
       
       Rules:
       - If adding an event, infer the end time (1 hour duration) if not specified.
@@ -141,9 +142,53 @@ export const handler: Handler = async (event, context) => {
       - Be friendly, concise, and helpful.
     `;
 
+    // Add file analysis instructions if file content is provided
+    if (fileContent) {
+      systemPrompt += `
+      
+      FILE ANALYSIS MODE:
+      The user has uploaded a file. Your task is to:
+      1. Analyze the file content and extract all relevant information about events, schedules, or learning plans.
+      2. Check if the following information is present for each event/session:
+         - Title/Name of the event/session
+         - Start date and time (or day of week and time)
+         - Duration or end time
+         - Attendees/participants (match names to family members: ${members.map((m: any) => m.name).join(', ')})
+         - Location (if mentioned)
+         - Category (School, Work, Family, Fun, Chore, Health, or Other)
+         - Description/details
+      
+      3. If any information is missing, ask clarifying questions BEFORE creating events:
+         - "When should this plan start?" (if start date is missing)
+         - "What time do the sessions take place?" (if time is missing)
+         - "Which day(s) of the week?" (if day is missing)
+         - "Who should attend these sessions?" (if attendees are missing)
+         - "How long is each session?" (if duration is missing)
+      
+      4. Once you have all necessary information, create the events using the addEvent tool.
+         - For recurring events (like weekly sessions), create individual events for each occurrence.
+         - Use the current date as reference if relative dates are mentioned (e.g., "next month").
+         - Default to 1 hour duration if not specified.
+         - Match attendee names to family member names when possible.
+      
+      5. After creating events, confirm what was created: "I've created X events from your file: [list of event titles]"
+      
+      File Content:
+      ${fileContent.substring(0, 50000)}${fileContent.length > 50000 ? '\n\n[File content truncated - first 50,000 characters shown]' : ''}
+      `;
+    }
+
+    // Build the content message - include file content if provided
+    let contentMessage = userMessage || '';
+    if (fileContent) {
+      contentMessage = userMessage 
+        ? `${userMessage}\n\nPlease analyze the uploaded file and help create calendar events.`
+        : 'Please analyze the uploaded file and help create calendar events.';
+    }
+
     const response = await ai.models.generateContent({
       model: 'gemini-3-pro-preview',
-      contents: userMessage,
+      contents: contentMessage,
       config: {
         systemInstruction: systemPrompt,
         tools: [{ functionDeclarations: [addEventTool, updateEventTool, deleteEventTool] }],
@@ -153,48 +198,63 @@ export const handler: Handler = async (event, context) => {
 
     let responseText = response.text || "";
     let action = undefined;
+    const actions: any[] = [];
 
     const functionCalls = response.functionCalls;
     if (functionCalls && functionCalls.length > 0) {
-      const fc = functionCalls[0];
-      const args = fc.args as any;
+      // Process all function calls (for multiple event creation from files)
+      const eventTitles: string[] = [];
+      
+      for (const fc of functionCalls) {
+        const args = fc.args as any;
 
-      if (fc.name === 'addEvent') {
-        responseText = responseText || `I've added "${args.title}" to the calendar.`;
-        action = {
-          type: 'ADD',
-          payload: {
-            title: args.title,
-            start: args.start,
-            end: args.end,
-            description: args.description || '',
-            location: args.location || '',
-            category: args.category || 'Family',
-            attendeeNames: args.attendeeNames || []
-          }
-        };
-      } 
-      else if (fc.name === 'updateEvent') {
-        responseText = responseText || `I've updated the event.`;
-        action = {
-          type: 'UPDATE',
-          payload: {
-            id: args.id,
-            updates: {
-                ...args,
-                start: args.start ? args.start : undefined,
-                end: args.end ? args.end : undefined,
-                attendeeNames: args.attendeeNames || undefined
+        if (fc.name === 'addEvent') {
+          eventTitles.push(args.title);
+          actions.push({
+            type: 'ADD',
+            payload: {
+              title: args.title,
+              start: args.start,
+              end: args.end,
+              description: args.description || '',
+              location: args.location || '',
+              category: args.category || 'Family',
+              attendeeNames: args.attendeeNames || []
             }
-          }
-        };
-      } 
-      else if (fc.name === 'deleteEvent') {
-        responseText = responseText || `Event deleted.`;
-        action = {
-          type: 'DELETE',
-          payload: args.id
-        };
+          });
+        } 
+        else if (fc.name === 'updateEvent') {
+          actions.push({
+            type: 'UPDATE',
+            payload: {
+              id: args.id,
+              updates: {
+                  ...args,
+                  start: args.start ? args.start : undefined,
+                  end: args.end ? args.end : undefined,
+                  attendeeNames: args.attendeeNames || undefined
+              }
+            }
+          });
+        } 
+        else if (fc.name === 'deleteEvent') {
+          actions.push({
+            type: 'DELETE',
+            payload: args.id
+          });
+        }
+      }
+
+      // Set response text and action (use first action for backward compatibility)
+      if (actions.length > 0) {
+        if (eventTitles.length > 1) {
+          responseText = responseText || `I've created ${eventTitles.length} events: ${eventTitles.join(', ')}`;
+        } else if (eventTitles.length === 1) {
+          responseText = responseText || `I've added "${eventTitles[0]}" to the calendar.`;
+        } else {
+          responseText = responseText || actions[0].type === 'UPDATE' ? "I've updated the event." : "Event deleted.";
+        }
+        action = actions[0]; // Return first action for backward compatibility
       }
     }
 
@@ -215,7 +275,11 @@ export const handler: Handler = async (event, context) => {
         'Content-Type': 'application/json',
         'Access-Control-Allow-Origin': '*',
       },
-      body: JSON.stringify({ text: responseText, action }),
+      body: JSON.stringify({ 
+        text: responseText, 
+        action, // Single action for backward compatibility
+        actions: actions.length > 0 ? actions : undefined // Multiple actions for file uploads
+      }),
     };
 
   } catch (error: any) {

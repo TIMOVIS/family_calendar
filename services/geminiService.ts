@@ -65,7 +65,8 @@ export const deleteEventTool: FunctionDeclaration = {
 export const generateCalendarAdvice = async (
   userMessage: string,
   events: CalendarEvent[],
-  members: FamilyMember[]
+  members: FamilyMember[],
+  fileContent?: string
 ): Promise<ChatResponse> => {
   try {
     const eventsData = events.map(e => ({
@@ -85,6 +86,7 @@ export const generateCalendarAdvice = async (
       },
       body: JSON.stringify({
         userMessage,
+        fileContent,
         events: eventsData,
         members: members.map(m => ({
           id: m.id,
@@ -119,47 +121,53 @@ export const generateCalendarAdvice = async (
 
     const data = await response.json();
 
-    let action = undefined;
-    if (data.action) {
-      if (data.action.type === 'ADD') {
-        action = {
+    // Helper function to transform action payload
+    const transformAction = (actionData: any) => {
+      if (actionData.type === 'ADD') {
+        return {
           type: 'ADD' as const,
           payload: {
             id: generateId(),
-            title: data.action.payload.title,
-            start: new Date(data.action.payload.start),
-            end: new Date(data.action.payload.end),
-            description: data.action.payload.description || '',
-            location: data.action.payload.location || '',
-            category: (data.action.payload.category || EventCategory.FAMILY) as EventCategory,
-            memberIds: mapNamesToIds(data.action.payload.attendeeNames || [], members),
+            title: actionData.payload.title,
+            start: new Date(actionData.payload.start),
+            end: new Date(actionData.payload.end),
+            description: actionData.payload.description || '',
+            location: actionData.payload.location || '',
+            category: (actionData.payload.category || EventCategory.FAMILY) as EventCategory,
+            memberIds: mapNamesToIds(actionData.payload.attendeeNames || [], members),
             audioMessages: []
           }
         };
-      } else if (data.action.type === 'UPDATE') {
-        action = {
+      } else if (actionData.type === 'UPDATE') {
+        return {
           type: 'UPDATE' as const,
           payload: {
-            id: data.action.payload.id,
+            id: actionData.payload.id,
             updates: {
-              ...data.action.payload.updates,
-              start: data.action.payload.updates.start ? new Date(data.action.payload.updates.start) : undefined,
-              end: data.action.payload.updates.end ? new Date(data.action.payload.updates.end) : undefined,
-              memberIds: data.action.payload.updates.attendeeNames ? mapNamesToIds(data.action.payload.updates.attendeeNames, members) : undefined
+              ...actionData.payload.updates,
+              start: actionData.payload.updates.start ? new Date(actionData.payload.updates.start) : undefined,
+              end: actionData.payload.updates.end ? new Date(actionData.payload.updates.end) : undefined,
+              memberIds: actionData.payload.updates.attendeeNames ? mapNamesToIds(actionData.payload.updates.attendeeNames, members) : undefined
             }
           }
         };
-      } else if (data.action.type === 'DELETE') {
-        action = {
+      } else if (actionData.type === 'DELETE') {
+        return {
           type: 'DELETE' as const,
-          payload: data.action.payload
+          payload: actionData.payload
         };
       }
-    }
+      return actionData;
+    };
+
+    // Process multiple actions if present, otherwise single action
+    const actionsArray = data.actions || (data.action ? [data.action] : []);
+    const transformedActions = actionsArray.map(transformAction);
 
     return { 
       text: data.text || "I didn't catch that.", 
-      action: action as any 
+      action: transformedActions[0] as any, // Single action for backward compatibility
+      actions: transformedActions.length > 1 ? transformedActions : undefined // Multiple actions for file uploads
     };
 
   } catch (error) {
