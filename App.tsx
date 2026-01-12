@@ -55,6 +55,7 @@ import EventModal from './components/EventModal';
 import ChatAssistant from './components/ChatAssistant';
 import FamilyManager from './components/FamilyManager';
 import AuthScreen from './components/AuthScreen';
+import ResetPasswordPage from './components/ResetPasswordPage';
 import { authService, familyService, eventService, shoppingService, wishListService } from './services/supabaseService';
 import { supabase } from './lib/supabase';
 import EditProfileModal from './components/EditProfileModal';
@@ -1192,6 +1193,40 @@ function App() {
         </div>
       </div>
     );
+  }
+
+  // Check if we're on a password reset page
+  const [isResetPasswordPage, setIsResetPasswordPage] = useState(false);
+
+  useEffect(() => {
+    const checkResetPassword = () => {
+      // Check URL hash for Supabase reset token
+      const hashParams = new URLSearchParams(window.location.hash.substring(1));
+      const accessToken = hashParams.get('access_token');
+      const type = hashParams.get('type');
+
+      // Also check query parameters (alternative format)
+      const urlParams = new URLSearchParams(window.location.search);
+      const token = urlParams.get('token');
+      const tokenHash = urlParams.get('token_hash');
+      const queryType = urlParams.get('type');
+
+      if ((type === 'recovery' && accessToken) || (queryType === 'recovery' && (token || tokenHash))) {
+        setIsResetPasswordPage(true);
+      } else {
+        setIsResetPasswordPage(false);
+      }
+    };
+
+    checkResetPassword();
+    
+    // Also listen for hash changes
+    window.addEventListener('hashchange', checkResetPassword);
+    return () => window.removeEventListener('hashchange', checkResetPassword);
+  }, []);
+
+  if (isResetPasswordPage) {
+    return <ResetPasswordPage onAuthenticated={handleAuthenticated} />;
   }
 
   if (!currentUser) return <AuthScreen onAuthenticated={handleAuthenticated} />;

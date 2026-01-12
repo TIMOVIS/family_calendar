@@ -114,6 +114,21 @@ The app requires Supabase tables for families, members, events, etc. Make sure y
 
 Run these migrations in your Supabase SQL editor if needed.
 
+## Supabase Configuration
+
+### Password Reset Email Configuration
+
+To enable password reset functionality, configure the redirect URL in your Supabase dashboard:
+
+1. Go to your Supabase project dashboard
+2. Navigate to **Authentication** → **URL Configuration**
+3. Add your site URL to the **Redirect URLs** list:
+   - For local development: `http://localhost:3000`
+   - For production: `https://your-domain.netlify.app` (or your custom domain)
+4. The password reset emails will automatically redirect to your app with the reset token
+
+The app will automatically detect the reset token from the email link and show the password reset page.
+
 ## Project Structure
 
 ```

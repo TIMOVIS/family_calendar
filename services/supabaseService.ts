@@ -31,8 +31,10 @@ export const authService = {
   },
 
   async resetPassword(email: string) {
+    // Use the current origin - Supabase will append the reset token as hash parameters
+    const redirectUrl = `${window.location.origin}${window.location.pathname}`;
     const { data, error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}${window.location.pathname}`,
+      redirectTo: redirectUrl,
     });
     return { data, error };
   },
