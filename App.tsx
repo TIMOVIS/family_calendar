@@ -106,6 +106,22 @@ function App() {
   // Refs
   const searchInputRef = useRef<HTMLInputElement>(null);
 
+  // Helper function to check if we're on a password reset page
+  const checkIsResetPasswordPage = () => {
+    // Check URL hash for Supabase reset token
+    const hashParams = new URLSearchParams(window.location.hash.substring(1));
+    const accessToken = hashParams.get('access_token');
+    const type = hashParams.get('type');
+
+    // Also check query parameters (alternative format)
+    const urlParams = new URLSearchParams(window.location.search);
+    const token = urlParams.get('token');
+    const tokenHash = urlParams.get('token_hash');
+    const queryType = urlParams.get('type');
+
+    return (type === 'recovery' && accessToken) || (queryType === 'recovery' && (token || tokenHash));
+  };
+
   // Check for existing session on mount
   useEffect(() => {
     const checkSession = async () => {
@@ -156,6 +172,7 @@ function App() {
 
     fetchJoinCode();
   }, [isFamilyManagerOpen, currentFamilyId, familyJoinCode]);
+
 
   // Authentication Handler
   const handleAuthenticated = async (userId: string, familyId: string, memberId: string) => {
@@ -1195,37 +1212,8 @@ function App() {
     );
   }
 
-  // Check if we're on a password reset page
-  const [isResetPasswordPage, setIsResetPasswordPage] = useState(false);
-
-  useEffect(() => {
-    const checkResetPassword = () => {
-      // Check URL hash for Supabase reset token
-      const hashParams = new URLSearchParams(window.location.hash.substring(1));
-      const accessToken = hashParams.get('access_token');
-      const type = hashParams.get('type');
-
-      // Also check query parameters (alternative format)
-      const urlParams = new URLSearchParams(window.location.search);
-      const token = urlParams.get('token');
-      const tokenHash = urlParams.get('token_hash');
-      const queryType = urlParams.get('type');
-
-      if ((type === 'recovery' && accessToken) || (queryType === 'recovery' && (token || tokenHash))) {
-        setIsResetPasswordPage(true);
-      } else {
-        setIsResetPasswordPage(false);
-      }
-    };
-
-    checkResetPassword();
-    
-    // Also listen for hash changes
-    window.addEventListener('hashchange', checkResetPassword);
-    return () => window.removeEventListener('hashchange', checkResetPassword);
-  }, []);
-
-  if (isResetPasswordPage) {
+  // Check if we're on a password reset page (must be before any conditional returns)
+  if (checkIsResetPasswordPage()) {
     return <ResetPasswordPage onAuthenticated={handleAuthenticated} />;
   }
 
