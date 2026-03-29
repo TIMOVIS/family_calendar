@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { X, Calendar as CalendarIcon, MapPin, Mic, Square, Trash2, Play, Pause } from 'lucide-react';
-import { CalendarEvent, EventCategory, FamilyMember, ThemeColor, AudioMessage } from '../types';
+import { CalendarEvent, EventCategory, FamilyMember, ThemeColor, AudioMessage, StudySubject } from '../types';
 import { generateId } from '../utils';
 
 interface EventModalProps {
@@ -32,6 +32,7 @@ const EventModal: React.FC<EventModalProps> = ({
   const [endTime, setEndTime] = useState('10:00');
   const [location, setLocation] = useState('');
   const [category, setCategory] = useState<EventCategory>(EventCategory.FAMILY);
+  const [studySubject, setStudySubject] = useState<StudySubject | undefined>(undefined);
   const [selectedMembers, setSelectedMembers] = useState<string[]>([]);
   const [description, setDescription] = useState('');
   
@@ -52,6 +53,7 @@ const EventModal: React.FC<EventModalProps> = ({
         setEndTime(existingEvent.end.toTimeString().slice(0, 5));
         setLocation(existingEvent.location || '');
         setCategory(existingEvent.category);
+        setStudySubject(existingEvent.studySubject);
         setSelectedMembers(existingEvent.memberIds);
         setDescription(existingEvent.description || '');
         setAudioMessages(existingEvent.audioMessages || []);
@@ -64,6 +66,7 @@ const EventModal: React.FC<EventModalProps> = ({
         setEndTime('10:00');
         setLocation('');
         setCategory(EventCategory.FAMILY);
+        setStudySubject(undefined);
         setSelectedMembers([]);
         setDescription('');
         setAudioMessages([]);
@@ -175,6 +178,7 @@ const EventModal: React.FC<EventModalProps> = ({
       start,
       end,
       category,
+      studySubject: category === EventCategory.STUDY ? studySubject : undefined,
       location: location.trim() || undefined,
       memberIds: selectedMembers,
       description,
@@ -294,6 +298,28 @@ const EventModal: React.FC<EventModalProps> = ({
               ))}
             </div>
           </div>
+
+          {category === EventCategory.STUDY && (
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Study Subject</label>
+              <div className="flex flex-wrap gap-2">
+                {Object.values(StudySubject).map((sub) => (
+                  <button
+                    key={sub}
+                    type="button"
+                    onClick={() => setStudySubject(studySubject === sub ? undefined : sub)}
+                    className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${
+                      studySubject === sub
+                        ? 'bg-emerald-600 text-white shadow-md scale-105'
+                        : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200'
+                    }`}
+                  >
+                    {sub}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-2">Attendee(s)</label>
