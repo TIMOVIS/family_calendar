@@ -7,10 +7,7 @@ import {
   ChevronRight,
   MessageCircle,
   Calendar as CalendarIcon,
-  List,
-  Home,
   Clock,
-  Sparkles,
   MapPin,
   Settings,
   LogOut,
@@ -20,14 +17,13 @@ import {
   Square,
   ShoppingBag,
   Gift,
-  Info,
-  Users,
   Filter,
   XCircle,
   ChevronDown,
   CheckCircle2,
   Circle,
-  GraduationCap
+  GraduationCap,
+  BookOpen
 } from 'lucide-react';
 import { 
   getDaysInMonth, 
@@ -54,7 +50,6 @@ import {
 } from './constants';
 import EventModal from './components/EventModal';
 import ChatAssistant from './components/ChatAssistant';
-import FamilyManager from './components/FamilyManager';
 import AuthScreen from './components/AuthScreen';
 import ResetPasswordPage from './components/ResetPasswordPage';
 import { authService, familyService, eventService, shoppingService, wishListService } from './services/supabaseService';
@@ -78,20 +73,17 @@ function App() {
   const [members, setMembers] = useState<FamilyMember[]>([]);
   const [shoppingList, setShoppingList] = useState<ShoppingItem[]>([]);
   const [wishLists, setWishLists] = useState<WishListItem[]>([]);
-  const [familyJoinCode, setFamilyJoinCode] = useState<string | null>(null);
-  
-  // Refined Search State
+
+  // Search State
   const [searchKeyword, setSearchKeyword] = useState('');
   const [searchDate, setSearchDate] = useState('');
   const [searchTime, setSearchTime] = useState('');
-  const [searchMemberId, setSearchMemberId] = useState<string>('');
   
   const [viewMode, setViewMode] = useState<'home' | 'month' | 'list' | 'shopping' | 'wishlist' | 'study'>('home');
   const [theme, setTheme] = useState<ThemeColor>('indigo');
-  
+
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isFamilyManagerOpen, setIsFamilyManagerOpen] = useState(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -153,27 +145,6 @@ function App() {
     };
   }, []);
 
-  // Fetch join code when Family Manager is opened (fallback if not loaded initially)
-  useEffect(() => {
-    const fetchJoinCode = async () => {
-      if (isFamilyManagerOpen && currentFamilyId && !familyJoinCode) {
-        try {
-          console.log('Fetching join code for family:', currentFamilyId);
-          const familyData = await familyService.getFamily(currentFamilyId);
-          if (familyData && familyData.join_code) {
-            console.log('Loaded family join code:', familyData.join_code);
-            setFamilyJoinCode(familyData.join_code);
-          } else {
-            console.warn('Family data loaded but no join_code found:', familyData);
-          }
-        } catch (error) {
-          console.error('Error fetching join code:', error);
-        }
-      }
-    };
-
-    fetchJoinCode();
-  }, [isFamilyManagerOpen, currentFamilyId, familyJoinCode]);
 
 
   // Authentication Handler
@@ -182,77 +153,39 @@ function App() {
     try {
       setCurrentFamilyId(familyId);
       setCurrentMemberId(memberId);
-      
-      // Load family data (including join code)
-      try {
-        const familyData = await familyService.getFamily(familyId);
-        if (familyData && familyData.join_code) {
-          console.log('Loaded family join code:', familyData.join_code);
-          setFamilyJoinCode(familyData.join_code);
-        } else {
-          console.warn('Family data loaded but no join_code found:', familyData);
-        }
-      } catch (error) {
-        console.error('Error loading family data (join code):', error);
-        // Don't block the rest of the loading if this fails
-      }
-      
-      // Load family members
+
+      // Load members
       const familyMembers = await familyService.getFamilyMembers(familyId);
       setMembers(familyMembers);
-      
+
       // Find current user member
       const currentMember = familyMembers.find(m => m.id === memberId);
       if (currentMember) {
         setCurrentUser(currentMember);
         setTheme(currentMember.color);
       }
-      
-      // Load events (filtered based on member role)
+
+      // Load events
       const familyEvents = await eventService.getFamilyEvents(familyId, memberId, currentMember?.isAdmin);
       setEvents(familyEvents);
-      
+
       // Load shopping list
       const shoppingItems = await shoppingService.getFamilyShoppingItems(familyId);
       setShoppingList(shoppingItems);
-      
+
       // Load wish list
       const wishListItems = await wishListService.getFamilyWishListItems(familyId);
       setWishLists(wishListItems);
-      
+
       clearFilters();
     } catch (error) {
-      console.error('Error loading family data:', error);
-      alert('Failed to load family data. Please try again.');
+      console.error('Error loading data:', error);
+      alert('Failed to load your data. Please try again.');
     } finally {
       setIsLoading(false);
     }
   };
   
-  // Login Handler (Account Switching)
-  const handleLogin = async (member: FamilyMember) => {
-    if (activeAudioRef.current) {
-      activeAudioRef.current.pause();
-      activeAudioRef.current = null;
-      setPlayingAudioId(null);
-    }
-    setCurrentUser(member);
-    setTheme(member.color);
-    setCurrentMemberId(member.id);
-    
-    // Reload events with new member's visibility
-    if (currentFamilyId) {
-      try {
-        const familyEvents = await eventService.getFamilyEvents(currentFamilyId, member.id, member.isAdmin);
-        setEvents(familyEvents);
-      } catch (error) {
-        console.error('Error loading events after login:', error);
-      }
-    }
-    
-    clearFilters();
-  };
-
   const handleLogout = async () => {
     if (activeAudioRef.current) {
         activeAudioRef.current.pause();
@@ -267,8 +200,7 @@ function App() {
     setEvents([]);
     setShoppingList([]);
     setWishLists([]);
-    setFamilyJoinCode(null);
-    setTheme('indigo'); 
+    setTheme('indigo');
     setViewMode('home');
     setIsSettingsOpen(false);
   };
@@ -301,7 +233,6 @@ function App() {
     setSearchKeyword('');
     setSearchDate('');
     setSearchTime('');
-    setSearchMemberId('');
   };
 
   // Audio Handler
@@ -448,7 +379,6 @@ function App() {
   
   const filteredEvents = useMemo(() => {
     return events.filter(event => {
-      // 1. Keyword Filter
       if (searchKeyword) {
         const q = searchKeyword.toLowerCase();
         const matchesKeyword = event.title.toLowerCase().includes(q) ||
@@ -457,27 +387,17 @@ function App() {
                               (event.location && event.location.toLowerCase().includes(q));
         if (!matchesKeyword) return false;
       }
-
-      // 2. Date Filter
       if (searchDate) {
         const eventDateStr = new Date(event.start).toISOString().split('T')[0];
         if (eventDateStr !== searchDate) return false;
       }
-
-      // 3. Time Filter
       if (searchTime) {
         const eventTimeStr = formatTime(new Date(event.start)).toLowerCase();
         if (!eventTimeStr.includes(searchTime.toLowerCase())) return false;
       }
-
-      // 4. Member/Attendee Filter
-      if (searchMemberId) {
-        if (!event.memberIds.includes(searchMemberId)) return false;
-      }
-
       return true;
     });
-  }, [events, searchKeyword, searchDate, searchTime, searchMemberId]);
+  }, [events, searchKeyword, searchDate, searchTime]);
 
   const handlePrevMonth = () => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1));
   const handleNextMonth = () => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1));
@@ -677,8 +597,8 @@ function App() {
       return true;
     });
 
-    const hasActiveFilters = searchKeyword || searchDate || searchTime || searchMemberId;
-    
+    const hasActiveFilters = searchKeyword || searchDate || searchTime;
+
     // Helper function to render a day section with progress bar
     const renderDaySection = (dayLabel: string, dayDate: Date, dayEvents: CalendarEvent[], progress: { completed: number; total: number; percentage: number }) => {
       const filteredDayEvents = dayEvents.filter(event => {
@@ -697,9 +617,6 @@ function App() {
         if (searchTime) {
           const eventTimeStr = formatTime(new Date(event.start)).toLowerCase();
           if (!eventTimeStr.includes(searchTime.toLowerCase())) return false;
-        }
-        if (searchMemberId) {
-          if (!event.memberIds.includes(searchMemberId)) return false;
         }
         return true;
       });
@@ -785,19 +702,6 @@ function App() {
                           </div>
                         )}
                       </div>
-                      <div className="flex items-center gap-2 mt-4">
-                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest mr-1">Attendees:</span>
-                        <div className="flex -space-x-1.5">
-                          {event.memberIds.map(mid => {
-                            const m = members.find(mem => mem.id === mid);
-                            return m ? (
-                              <div key={mid} className="w-8 h-8 rounded-full bg-white border-2 border-slate-50 flex items-center justify-center text-sm shadow-sm hover:scale-110 transition-transform relative z-10 hover:z-20" title={m.name}>
-                                {m.avatar}
-                              </div>
-                            ) : null;
-                          })}
-                        </div>
-                      </div>
                       </div>
                     </div>
                   </div>
@@ -812,17 +716,17 @@ function App() {
     return (
       <div className="animate-fade-in-up space-y-8 max-w-5xl mx-auto">
         <div className="text-center py-8">
-           <h2 className={`text-4xl font-bold text-${theme}-900 mb-2 transition-colors duration-300`}>
-             Welcome back, {currentUser?.name}! {currentUser?.avatar}
-           </h2>
-           <p className="text-xl text-slate-500 font-medium">
-             {today.toLocaleDateString('en-US', { weekday: 'long' })}, {formatDate(today)}
-           </p>
-           {currentUser?.points !== undefined && (
-             <p className="text-lg font-bold text-slate-600 mt-2">
-               Points: <span className={`text-${theme}-600`}>{currentUser.points}</span>
-             </p>
-           )}
+          <h2 className={`text-4xl font-bold text-${theme}-900 mb-2 transition-colors duration-300`}>
+            Good {new Date().getHours() < 12 ? 'morning' : new Date().getHours() < 17 ? 'afternoon' : 'evening'}, {currentUser?.name}! {currentUser?.avatar}
+          </h2>
+          <p className="text-xl text-slate-500 font-medium">
+            {today.toLocaleDateString('en-US', { weekday: 'long' })}, {formatDate(today)}
+          </p>
+          {currentUser?.points !== undefined && (
+            <p className="text-lg font-bold text-slate-600 mt-2">
+              Study points: <span className={`text-${theme}-600`}>{currentUser.points} ⭐</span>
+            </p>
+          )}
         </div>
 
         <div className="bg-white rounded-[2rem] shadow-xl border border-slate-100 overflow-hidden">
@@ -843,12 +747,12 @@ function App() {
               )}
             </div>
             
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {/* Keyword Search */}
               <div className="space-y-1.5">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Keywords</label>
                 <div className="relative">
-                  <input 
+                  <input
                     ref={searchInputRef}
                     type="text"
                     placeholder="Title, description..."
@@ -864,7 +768,7 @@ function App() {
               <div className="space-y-1.5">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Specific Date</label>
                 <div className="relative">
-                  <input 
+                  <input
                     type="date"
                     value={searchDate}
                     onChange={(e) => setSearchDate(e.target.value)}
@@ -878,7 +782,7 @@ function App() {
               <div className="space-y-1.5">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Time of Day</label>
                 <div className="relative">
-                  <input 
+                  <input
                     type="text"
                     placeholder="e.g. 10:00, PM"
                     value={searchTime}
@@ -886,25 +790,6 @@ function App() {
                     className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white shadow-sm"
                   />
                   <Clock className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
-                </div>
-              </div>
-
-              {/* Attendee Search */}
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Attendee</label>
-                <div className="relative">
-                  <select 
-                    value={searchMemberId}
-                    onChange={(e) => setSearchMemberId(e.target.value)}
-                    className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white shadow-sm appearance-none font-medium"
-                  >
-                    <option value="">Anyone</option>
-                    {members.map(m => (
-                      <option key={m.id} value={m.id}>{m.avatar} {m.name}</option>
-                    ))}
-                  </select>
-                  <Users className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
-                  <ChevronDown className="w-4 h-4 text-slate-400 absolute right-3 top-3.5 pointer-events-none" />
                 </div>
               </div>
             </div>
@@ -924,12 +809,25 @@ function App() {
              Quick Actions
            </h3>
            <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+              <button onClick={() => setViewMode('study')} className="bg-white hover:bg-emerald-50/50 p-6 rounded-3xl border border-slate-100 shadow-sm transition-all group text-left relative overflow-hidden">
+                <div className="w-12 h-12 bg-emerald-100 text-emerald-700 rounded-2xl flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
+                  <GraduationCap className="w-6 h-6" />
+                </div>
+                <h4 className="font-bold text-slate-800">11+ Tracker</h4>
+                <p className="text-xs text-slate-500 mt-1">Exam countdown & study plan</p>
+                {currentUser?.isStudent && (
+                  <span className="absolute top-4 right-4 text-[10px] font-black text-emerald-600 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
+                    Active
+                  </span>
+                )}
+              </button>
+
               <button onClick={() => setViewMode('month')} className="bg-white hover:bg-blue-50/50 p-6 rounded-3xl border border-slate-100 shadow-sm transition-all group text-left">
                 <div className="w-12 h-12 bg-blue-100 text-blue-600 rounded-2xl flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
                   <CalendarIcon className="w-6 h-6" />
                 </div>
                 <h4 className="font-bold text-slate-800">Month View</h4>
-                <p className="text-xs text-slate-500 mt-1 text-balance">Plan the family month</p>
+                <p className="text-xs text-slate-500 mt-1 text-balance">See your full month</p>
               </button>
 
               <button onClick={() => setViewMode('shopping')} className="bg-white hover:bg-emerald-50/50 p-6 rounded-3xl border border-slate-100 shadow-sm transition-all group text-left relative overflow-hidden">
@@ -937,11 +835,11 @@ function App() {
                   <ShoppingBag className="w-6 h-6" />
                 </div>
                 <h4 className="font-bold text-slate-800">Shopping List</h4>
-                <p className="text-xs text-slate-500 mt-1">Shared groceries & needs</p>
+                <p className="text-xs text-slate-500 mt-1">Study supplies & essentials</p>
                 {shoppingList.filter(i => !i.isCompleted).length > 0 && (
-                   <span className="absolute top-4 right-4 bg-red-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
-                     {shoppingList.filter(i => !i.isCompleted).length}
-                   </span>
+                  <span className="absolute top-4 right-4 bg-red-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
+                    {shoppingList.filter(i => !i.isCompleted).length}
+                  </span>
                 )}
               </button>
 
@@ -949,21 +847,8 @@ function App() {
                 <div className="w-12 h-12 bg-rose-100 text-rose-600 rounded-2xl flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
                   <Gift className="w-6 h-6" />
                 </div>
-                <h4 className="font-bold text-slate-800">Wish Lists</h4>
-                <p className="text-xs text-slate-500 mt-1">Gift ideas for everyone</p>
-              </button>
-
-              <button onClick={() => setViewMode('study')} className="bg-white hover:bg-emerald-50/50 p-6 rounded-3xl border border-slate-100 shadow-sm transition-all group text-left relative overflow-hidden">
-                <div className="w-12 h-12 bg-emerald-100 text-emerald-700 rounded-2xl flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
-                  <GraduationCap className="w-6 h-6" />
-                </div>
-                <h4 className="font-bold text-slate-800">11+ Prep</h4>
-                <p className="text-xs text-slate-500 mt-1">Study plans & rewards</p>
-                {members.some(m => m.isStudent) && (
-                  <span className="absolute top-4 right-4 text-[10px] font-black text-emerald-600 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
-                    {members.filter(m => m.isStudent).length} student{members.filter(m => m.isStudent).length > 1 ? 's' : ''}
-                  </span>
-                )}
+                <h4 className="font-bold text-slate-800">Rewards</h4>
+                <p className="text-xs text-slate-500 mt-1">Unlock rewards with study points</p>
               </button>
 
               <button onClick={() => { setSelectedDate(new Date()); setEditingEvent(null); setIsModalOpen(true); }} className="bg-white hover:bg-amber-50/50 p-6 rounded-3xl border border-slate-100 shadow-sm transition-all group text-left">
@@ -1051,7 +936,7 @@ function App() {
 
   const renderListView = () => {
      const sortedEvents = [...filteredEvents].sort((a,b) => a.start.getTime() - b.start.getTime());
-     const hasActiveFilters = searchKeyword || searchDate || searchTime || searchMemberId;
+     const hasActiveFilters = searchKeyword || searchDate || searchTime;
 
      return (
        <div className="animate-fade-in-up max-w-4xl mx-auto space-y-6">
@@ -1193,19 +1078,6 @@ function App() {
                                  </div>
                                )}
                             </div>
-                            <div className="flex items-center gap-2 mt-4">
-                               <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest mr-1">Attendees:</span>
-                               <div className="flex -space-x-1.5">
-                                 {event.memberIds.map(mid => {
-                                    const m = members.find(mem => mem.id === mid);
-                                    return m ? (
-                                       <div key={mid} className="w-8 h-8 rounded-full bg-white border-2 border-slate-50 flex items-center justify-center text-sm shadow-sm hover:scale-110 transition-transform relative z-10 hover:z-20" title={m.name}>
-                                          {m.avatar}
-                                       </div>
-                                    ) : null;
-                                 })}
-                               </div>
-                            </div>
                          </div>
                       </div>
                     );
@@ -1219,10 +1091,10 @@ function App() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500">
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-600 via-violet-600 to-purple-700">
         <div className="text-white text-center">
           <div className="w-16 h-16 border-4 border-white border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <h1 className="text-3xl font-bold">Loading fam.ly...</h1>
+          <h1 className="text-3xl font-bold">Loading your study space...</h1>
         </div>
       </div>
     );
@@ -1238,57 +1110,39 @@ function App() {
   return (
     <div className={`min-h-screen bg-slate-50 pb-20 theme-${theme}`}>
       <nav className="bg-white/80 backdrop-blur-md sticky top-0 z-30 border-b border-slate-200 px-4 py-3">
-         <div className="max-w-6xl mx-auto flex items-center justify-between">
-            <div className="flex items-center gap-2 cursor-pointer" onClick={() => { setViewMode('home'); clearFilters(); }}>
-               <div className={`w-10 h-10 bg-${theme}-600 rounded-xl flex items-center justify-center text-2xl shadow-lg shadow-${theme}-200`}>🏡</div>
-               <span className="text-xl font-bold text-slate-800 hidden sm:block tracking-tight">fam.ly</span>
+        <div className="max-w-6xl mx-auto flex items-center justify-between">
+          <div className="flex items-center gap-2 cursor-pointer" onClick={() => { setViewMode('home'); clearFilters(); }}>
+            <div className={`w-10 h-10 bg-${theme}-600 rounded-xl flex items-center justify-center shadow-lg shadow-${theme}-200`}>
+              <BookOpen className="w-5 h-5 text-white" />
             </div>
+            <span className="text-xl font-bold text-slate-800 hidden sm:block tracking-tight">11+ Planner</span>
+          </div>
 
-            <div className="flex items-center gap-2 sm:gap-4">
-               <div className="hidden md:flex bg-slate-100 rounded-full p-1 gap-1">
-                  {members.map(m => {
-                    const isSelf = currentUser.id === m.id;
-                    const canSwitch = currentUser.isAdmin || isSelf;
-                    
-                    return (
-                      <button
-                        key={m.id}
-                        onClick={() => canSwitch ? handleLogin(m) : null}
-                        disabled={!canSwitch}
-                        className={`w-8 h-8 rounded-full flex items-center justify-center text-sm transition-all border-2 ${
-                          currentUser.id === m.id 
-                            ? `bg-white border-${m.color}-500 shadow-sm scale-110` 
-                            : canSwitch 
-                              ? 'bg-transparent border-transparent opacity-60 hover:opacity-100 cursor-pointer' 
-                              : 'bg-transparent border-transparent opacity-20 cursor-not-allowed'
-                        }`}
-                        title={canSwitch ? (isSelf ? `Your profile` : `Switch to ${m.name}`) : `${m.name}'s profile (Admin only)`}
-                      >{m.avatar}</button>
-                    );
-                  })}
-               </div>
-               <div className="h-8 w-px bg-slate-200 mx-2 hidden sm:block"></div>
-               <button onClick={() => setIsSyncModalOpen(true)} className="p-2 text-slate-500 hover:bg-slate-100 rounded-full transition-colors" title="Sync Calendar"><RefreshCw className="w-5 h-5" /></button>
-               <button onClick={() => setIsProfileModalOpen(true)} className="flex items-center gap-2 hover:bg-slate-100 pr-3 pl-1 py-1 rounded-full transition-all border border-transparent hover:border-slate-200">
-                  <div className={`w-8 h-8 rounded-full bg-${currentUser.color}-100 flex items-center justify-center text-lg border-2 border-white shadow-sm`}>{currentUser.avatar}</div>
-                  <span className="text-sm font-bold text-slate-700 hidden sm:block">{currentUser.name}</span>
-               </button>
-               <div className="relative">
-                 <button onClick={() => setIsSettingsOpen(!isSettingsOpen)} className={`p-2 rounded-full transition-colors ${isSettingsOpen ? 'bg-slate-100 text-slate-600' : 'text-slate-400 hover:text-slate-600'}`}><Settings className="w-6 h-6" /></button>
-                 {isSettingsOpen && (
-                   <>
-                     <div className="fixed inset-0 z-10" onClick={() => setIsSettingsOpen(false)}></div>
-                     <div className="absolute right-0 top-full mt-2 w-48 bg-white rounded-2xl shadow-xl border border-slate-100 p-2 animate-fade-in-up z-20">
-                        {currentUser.isAdmin && (
-                          <button onClick={() => { setIsFamilyManagerOpen(true); setIsSettingsOpen(false); }} className="w-full text-left px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50 rounded-xl flex items-center gap-2"><Settings className="w-4 h-4" /> Manage Family</button>
-                        )}
-                        <button onClick={() => { handleLogout(); setIsSettingsOpen(false); }} className="w-full text-left px-4 py-2 text-sm font-bold text-red-600 hover:bg-red-50 rounded-xl flex items-center gap-2"><LogOut className="w-4 h-4" /> Logout</button>
-                     </div>
-                   </>
-                 )}
-               </div>
+          <div className="flex items-center gap-2 sm:gap-3">
+            <button onClick={() => setIsSyncModalOpen(true)} className="p-2 text-slate-500 hover:bg-slate-100 rounded-full transition-colors" title="Sync Calendar">
+              <RefreshCw className="w-5 h-5" />
+            </button>
+            <button onClick={() => setIsProfileModalOpen(true)} className="flex items-center gap-2 hover:bg-slate-100 pr-3 pl-1 py-1 rounded-full transition-all border border-transparent hover:border-slate-200">
+              <div className={`w-8 h-8 rounded-full bg-${currentUser.color}-100 flex items-center justify-center text-lg border-2 border-white shadow-sm`}>{currentUser.avatar}</div>
+              <span className="text-sm font-bold text-slate-700 hidden sm:block">{currentUser.name}</span>
+            </button>
+            <div className="relative">
+              <button onClick={() => setIsSettingsOpen(!isSettingsOpen)} className={`p-2 rounded-full transition-colors ${isSettingsOpen ? 'bg-slate-100 text-slate-600' : 'text-slate-400 hover:text-slate-600'}`}>
+                <Settings className="w-5 h-5" />
+              </button>
+              {isSettingsOpen && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setIsSettingsOpen(false)}></div>
+                  <div className="absolute right-0 top-full mt-2 w-44 bg-white rounded-2xl shadow-xl border border-slate-100 p-2 animate-fade-in-up z-20">
+                    <button onClick={() => { handleLogout(); setIsSettingsOpen(false); }} className="w-full text-left px-4 py-2 text-sm font-bold text-red-600 hover:bg-red-50 rounded-xl flex items-center gap-2">
+                      <LogOut className="w-4 h-4" /> Sign out
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
-         </div>
+          </div>
+        </div>
       </nav>
 
       <main className="max-w-6xl mx-auto p-4 sm:p-6 lg:p-8">
@@ -1349,12 +1203,6 @@ function App() {
         onAddEvent={handleSaveEvent} onUpdateEvent={handleSaveEvent} onDeleteEvent={handleDeleteEvent}
       />
 
-      <FamilyManager
-        isOpen={isFamilyManagerOpen} onClose={() => setIsFamilyManagerOpen(false)}
-        members={members} onUpdateMembers={setMembers} theme={theme}
-        joinCode={familyJoinCode}
-      />
-      
       <EditProfileModal isOpen={isProfileModalOpen} onClose={() => setIsProfileModalOpen(false)} currentUser={currentUser} onUpdate={handleUpdateProfile} />
       <SyncModal isOpen={isSyncModalOpen} onClose={() => setIsSyncModalOpen(false)} onExport={handleExportCalendar} onImport={handleImportCalendar} onAddEvents={handleAddEvents} theme={theme} currentUser={currentUser} />
     </div>

@@ -167,7 +167,7 @@ const StudyDashboard: React.FC<StudyDashboardProps> = ({
   const [expandedStudentId, setExpandedStudentId] = useState<string | null>(null);
 
   const students = members.filter(m => m.isStudent);
-  const canEdit = currentUser.isAdmin || true; // Parents and admins can edit
+  const canEdit = true;
 
   const { start: weekStart, end: weekEnd } = getThisWeekRange();
 
@@ -252,7 +252,7 @@ const StudyDashboard: React.FC<StudyDashboardProps> = ({
     }
   };
 
-  const nonStudentChildren = members.filter(m => !m.isStudent && !m.isAdmin);
+  const currentUserIsStudent = currentUser.isStudent;
 
   return (
     <div className="space-y-8">
@@ -265,29 +265,18 @@ const StudyDashboard: React.FC<StudyDashboardProps> = ({
         <div className="text-4xl">🎓</div>
       </div>
 
-      {/* Add student prompt */}
-      {nonStudentChildren.length > 0 && (
-        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4">
-          <p className="text-sm font-bold text-amber-800 mb-2">Set up 11+ profiles for:</p>
-          <div className="flex flex-wrap gap-2">
-            {nonStudentChildren.map(m => (
-              <button
-                key={m.id}
-                onClick={() => handleMarkAsStudent(m.id)}
-                className="flex items-center gap-2 px-3 py-1.5 bg-white border border-amber-300 rounded-xl text-sm font-bold text-amber-700 hover:bg-amber-100 transition-colors"
-              >
-                {m.avatar} {m.name} <span className="text-amber-400">+</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {students.length === 0 && nonStudentChildren.length === 0 && (
-        <div className="text-center py-16 bg-white rounded-3xl border border-slate-200">
-          <div className="text-5xl mb-4">📚</div>
-          <h3 className="text-xl font-bold text-slate-700 mb-2">No students set up yet</h3>
-          <p className="text-slate-500">Add family members first, then set them up as 11+ students here.</p>
+      {/* Prompt to set up own profile */}
+      {!currentUserIsStudent && students.length === 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-6 text-center">
+          <div className="text-4xl mb-3">📚</div>
+          <h3 className="text-lg font-black text-amber-900 mb-2">Set up your 11+ profile</h3>
+          <p className="text-sm text-amber-700 mb-4">Add your exam date, target schools and study subjects to get started.</p>
+          <button
+            onClick={() => handleMarkAsStudent(currentUser.id)}
+            className="px-5 py-2.5 bg-amber-500 text-white font-bold rounded-xl hover:bg-amber-600 transition-colors shadow-sm"
+          >
+            Set up my profile ✨
+          </button>
         </div>
       )}
 
