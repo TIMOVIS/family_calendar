@@ -209,14 +209,14 @@ const ChatAssistant: React.FC<ChatAssistantProps> = ({
       
       // Process actions
       if (response.action) {
-        if (response.action.type === 'ADD' && onAddEvent) onAddEvent(response.action.payload);
-        else if (response.action.type === 'DELETE' && onDeleteEvent) onDeleteEvent(response.action.payload);
+        if (response.action.type === 'ADD' && onAddEvent) await onAddEvent(response.action.payload);
+        else if (response.action.type === 'DELETE' && onDeleteEvent) await onDeleteEvent(response.action.payload);
         else if (response.action.type === 'UPDATE' && onUpdateEvent) {
           const { id, updates } = response.action.payload;
           const existing = events.find(e => e.id === id);
           if (existing) {
-             const cleanUpdates = Object.fromEntries(Object.entries(updates).filter(([_, v]) => v !== undefined));
-             onUpdateEvent({ ...existing, ...cleanUpdates });
+            const cleanUpdates = Object.fromEntries(Object.entries(updates).filter(([_, v]) => v !== undefined));
+            await onUpdateEvent({ ...existing, ...cleanUpdates });
           }
         }
       }
@@ -359,19 +359,19 @@ const ChatAssistant: React.FC<ChatAssistantProps> = ({
       
       for (const action of actionsToProcess) {
         if (action.type === 'ADD' && onAddEvent) {
-          onAddEvent(action.payload);
+          await onAddEvent(action.payload);
         } else if (action.type === 'DELETE' && onDeleteEvent) {
-          onDeleteEvent(action.payload);
+          await onDeleteEvent(action.payload);
         } else if (action.type === 'UPDATE' && onUpdateEvent) {
           const { id, updates } = action.payload;
           const existing = events.find(e => e.id === id);
           if (existing) {
-             const cleanUpdates = Object.fromEntries(Object.entries(updates).filter(([_, v]) => v !== undefined));
-             onUpdateEvent({ ...existing, ...cleanUpdates });
+            const cleanUpdates = Object.fromEntries(Object.entries(updates).filter(([_, v]) => v !== undefined));
+            await onUpdateEvent({ ...existing, ...cleanUpdates });
           }
         }
       }
-      
+
       setMessages(prev => [...prev, { id: (Date.now() + 1).toString(), role: 'model', text: response.text || "Done!", timestamp: new Date() }]);
     } catch (e) {
       setMessages(prev => [...prev, { id: Date.now().toString(), role: 'model', text: "Error processing request.", timestamp: new Date() }]);

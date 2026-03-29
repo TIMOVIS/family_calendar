@@ -401,19 +401,22 @@ export const eventService = {
   },
 
   async createEvent(familyId: string, event: Omit<CalendarEvent, 'id'>, createdBy: string) {
+    const insertPayload: Record<string, any> = {
+      family_id: familyId,
+      title: event.title,
+      description: event.description || null,
+      start: event.start.toISOString(),
+      end: event.end.toISOString(),
+      location: event.location || null,
+      category: event.category,
+      created_by: createdBy,
+    };
+    // Only include study_subject when it has a value — avoids 400 if migration not run
+    if (event.studySubject) insertPayload.study_subject = event.studySubject;
+
     const { data: newEvent, error } = await supabase
       .from('events')
-      .insert({
-        family_id: familyId,
-        title: event.title,
-        description: event.description || null,
-        start: event.start.toISOString(),
-        end: event.end.toISOString(),
-        location: event.location || null,
-        category: event.category,
-        created_by: createdBy,
-        study_subject: event.studySubject || null,
-      })
+      .insert(insertPayload)
       .select()
       .single();
 
