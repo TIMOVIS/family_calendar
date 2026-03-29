@@ -3,10 +3,19 @@ export enum EventCategory {
   FAMILY = 'Family',
   WORK = 'Work',
   SCHOOL = 'School',
+  STUDY = 'Study',
   FUN = 'Fun',
   CHORE = 'Chore',
   HEALTH = 'Health',
   OTHER = 'Other'
+}
+
+export enum StudySubject {
+  MATHS = 'Maths',
+  ENGLISH = 'English',
+  VERBAL_REASONING = 'Verbal Reasoning',
+  NON_VERBAL_REASONING = 'Non-Verbal Reasoning',
+  CREATIVE_WRITING = 'Creative Writing'
 }
 
 export type ThemeColor = 'indigo' | 'rose' | 'emerald' | 'amber' | 'sky' | 'violet' | 'blue' | 'purple' | 'cyan' | 'teal' | 'pink';
@@ -18,6 +27,12 @@ export interface FamilyMember {
   color: ThemeColor; // Now strictly typed
   isAdmin?: boolean;
   points?: number; // Total points earned
+  // 11+ student profile
+  isStudent?: boolean;
+  examDate?: string;         // ISO date string YYYY-MM-DD
+  targetSchools?: string[];
+  yearGroup?: string;        // e.g. "Year 5", "Year 6"
+  studySubjects?: StudySubject[];
 }
 
 export interface AudioMessage {
@@ -39,6 +54,7 @@ export interface CalendarEvent {
   createdBy?: string; // ID of the member who created/organized the event
   audioMessages?: AudioMessage[];
   isCompleted?: boolean;
+  studySubject?: StudySubject; // For Study category events
 }
 
 export interface ChatMessage {
@@ -81,4 +97,5 @@ export interface WishListItem {
   link?: string;
   image?: string;
   comments?: string;
+  rewardPoints?: number; // If set, this item is a study reward unlocked at this point threshold
 }

@@ -1,32 +1,33 @@
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { 
-  Plus, 
-  Search, 
-  ChevronLeft, 
-  ChevronRight, 
-  MessageCircle, 
-  Calendar as CalendarIcon, 
-  List, 
-  Home, 
-  Clock, 
-  Sparkles, 
-  MapPin, 
-  Settings, 
-  LogOut, 
-  Mic, 
-  RefreshCw, 
-  Play, 
-  Square, 
-  ShoppingBag, 
-  Gift, 
-  Info, 
-  Users, 
-  Filter, 
-  XCircle, 
+import {
+  Plus,
+  Search,
+  ChevronLeft,
+  ChevronRight,
+  MessageCircle,
+  Calendar as CalendarIcon,
+  List,
+  Home,
+  Clock,
+  Sparkles,
+  MapPin,
+  Settings,
+  LogOut,
+  Mic,
+  RefreshCw,
+  Play,
+  Square,
+  ShoppingBag,
+  Gift,
+  Info,
+  Users,
+  Filter,
+  XCircle,
   ChevronDown,
   CheckCircle2,
-  Circle
+  Circle,
+  GraduationCap
 } from 'lucide-react';
 import { 
   getDaysInMonth, 
@@ -62,6 +63,7 @@ import EditProfileModal from './components/EditProfileModal';
 import SyncModal from './components/SyncModal';
 import ShoppingListView from './components/ShoppingListView';
 import WishListView from './components/WishListView';
+import StudyDashboard from './components/StudyDashboard';
 
 function App() {
   // Global State
@@ -84,7 +86,7 @@ function App() {
   const [searchTime, setSearchTime] = useState('');
   const [searchMemberId, setSearchMemberId] = useState<string>('');
   
-  const [viewMode, setViewMode] = useState<'home' | 'month' | 'list' | 'shopping' | 'wishlist'>('home');
+  const [viewMode, setViewMode] = useState<'home' | 'month' | 'list' | 'shopping' | 'wishlist' | 'study'>('home');
   const [theme, setTheme] = useState<ThemeColor>('indigo');
   
   // Modal State
@@ -400,6 +402,7 @@ function App() {
         link: savedItemData.link || undefined,
         image: savedItemData.image || undefined,
         comments: savedItemData.comments || undefined,
+        rewardPoints: savedItemData.reward_points || undefined,
       };
       // Update local state with the saved item (which has the database ID)
       setWishLists(prev => [savedItem, ...prev]);
@@ -950,6 +953,19 @@ function App() {
                 <p className="text-xs text-slate-500 mt-1">Gift ideas for everyone</p>
               </button>
 
+              <button onClick={() => setViewMode('study')} className="bg-white hover:bg-emerald-50/50 p-6 rounded-3xl border border-slate-100 shadow-sm transition-all group text-left relative overflow-hidden">
+                <div className="w-12 h-12 bg-emerald-100 text-emerald-700 rounded-2xl flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
+                  <GraduationCap className="w-6 h-6" />
+                </div>
+                <h4 className="font-bold text-slate-800">11+ Prep</h4>
+                <p className="text-xs text-slate-500 mt-1">Study plans & rewards</p>
+                {members.some(m => m.isStudent) && (
+                  <span className="absolute top-4 right-4 text-[10px] font-black text-emerald-600 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
+                    {members.filter(m => m.isStudent).length} student{members.filter(m => m.isStudent).length > 1 ? 's' : ''}
+                  </span>
+                )}
+              </button>
+
               <button onClick={() => { setSelectedDate(new Date()); setEditingEvent(null); setIsModalOpen(true); }} className="bg-white hover:bg-amber-50/50 p-6 rounded-3xl border border-slate-100 shadow-sm transition-all group text-left">
                 <div className="w-12 h-12 bg-amber-100 text-amber-600 rounded-2xl flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
                   <Plus className="w-6 h-6" />
@@ -1291,13 +1307,23 @@ function App() {
            />
          )}
          {viewMode === 'wishlist' && (
-           <WishListView 
-              items={wishLists} 
-              members={members} 
-              currentUser={currentUser} 
-              onAddItem={handleAddWishItem} 
+           <WishListView
+              items={wishLists}
+              members={members}
+              currentUser={currentUser}
+              onAddItem={handleAddWishItem}
               onDeleteItem={handleDeleteWishItem}
               theme={theme}
+           />
+         )}
+         {viewMode === 'study' && (
+           <StudyDashboard
+             members={members}
+             events={events}
+             wishListItems={wishLists}
+             currentUser={currentUser}
+             theme={theme}
+             onMembersUpdated={setMembers}
            />
          )}
       </main>

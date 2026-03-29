@@ -31,6 +31,12 @@ export interface Member {
   color: string;
   role: 'admin' | 'member';
   points?: number;
+  // 11+ student profile
+  is_student?: boolean;
+  exam_date?: string | null;
+  target_schools?: string[] | null;
+  year_group?: string | null;
+  study_subjects?: string[] | null;
   created_at: string;
   updated_at: string;
 }
@@ -45,6 +51,8 @@ export interface Event {
   location: string | null;
   category: string;
   created_by: string;
+  is_completed?: boolean;
+  study_subject?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -88,6 +96,7 @@ export interface WishListItem {
   link: string | null;
   image: string | null;
   comments: string | null;
+  reward_points: number | null;
   created_at: string;
   updated_at: string;
 }

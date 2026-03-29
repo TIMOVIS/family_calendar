@@ -1,6 +1,6 @@
 
 import { FunctionDeclaration, Type } from "@google/genai";
-import { CalendarEvent, FamilyMember, ChatResponse, EventCategory } from "../types";
+import { CalendarEvent, FamilyMember, ChatResponse, EventCategory, StudySubject } from "../types";
 import { generateId, mapNamesToIds } from "../utils";
 
 // --- Tool Definitions ---
@@ -16,15 +16,20 @@ export const addEventTool: FunctionDeclaration = {
       end: { type: Type.STRING, description: "End time in ISO format" },
       description: { type: Type.STRING, description: "Optional description" },
       location: { type: Type.STRING, description: "Optional location" },
-      category: { 
-        type: Type.STRING, 
-        description: "One of: Family, Work, School, Fun, Chore, Health, Other",
+      category: {
+        type: Type.STRING,
+        description: "One of: Family, Work, School, Study, Fun, Chore, Health, Other. Use 'Study' for 11+ exam preparation.",
         enum: Object.values(EventCategory)
       },
-      attendeeNames: { 
-        type: Type.ARRAY, 
-        items: { type: Type.STRING }, 
-        description: "List of family member names attending" 
+      studySubject: {
+        type: Type.STRING,
+        description: "For Study events: one of Maths, English, Verbal Reasoning, Non-Verbal Reasoning, Creative Writing",
+        enum: Object.values(StudySubject)
+      },
+      attendeeNames: {
+        type: Type.ARRAY,
+        items: { type: Type.STRING },
+        description: "List of family member names attending"
       }
     },
     required: ["title", "start", "end", "category"]
@@ -66,7 +71,8 @@ export const generateCalendarAdvice = async (
   userMessage: string,
   events: CalendarEvent[],
   members: FamilyMember[],
-  fileContent?: string
+  fileContent?: string,
+  studentProfiles?: FamilyMember[]
 ): Promise<ChatResponse> => {
   try {
     const eventsData = events.map(e => ({
@@ -94,21 +100,37 @@ export const generateCalendarAdvice = async (
           avatar: m.avatar,
           color: m.color,
           isAdmin: m.isAdmin
-        }))
+        })),
+        studentProfiles: (studentProfiles || members.filter(m => m.isStudent)).map(m => ({
+          id: m.id,
+          name: m.name,
+          isStudent: m.isStudent,
+          examDate: m.examDate,
+          targetSchools: m.targetSchools,
+          yearGroup: m.yearGroup,
+          studySubjects: m.studySubjects,
+          points: m.points,
+        })),
       }),
     });
 
     if (!response.ok) {
       let errorMessage = `HTTP error! status: ${response.status}`;
-      try {
-        const errorData = await response.json();
-        errorMessage = errorData.error || errorData.details || errorMessage;
-      } catch (e) {
+      
+      // Handle timeout errors specifically
+      if (response.status === 504) {
+        errorMessage = 'Request timeout - The file may be too large or the AI processing is taking too long. Please try:\n1. Split the file into smaller sections\n2. Reduce the file size (under 2MB recommended)\n3. Try again with a smaller file';
+      } else {
         try {
-          const text = await response.text();
-          if (text) errorMessage = text;
-        } catch (e2) {
-          // Ignore
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorData.details || errorMessage;
+        } catch (e) {
+          try {
+            const text = await response.text();
+            if (text) errorMessage = text;
+          } catch (e2) {
+            // Ignore
+          }
         }
       }
       
@@ -134,6 +156,7 @@ export const generateCalendarAdvice = async (
             description: actionData.payload.description || '',
             location: actionData.payload.location || '',
             category: (actionData.payload.category || EventCategory.FAMILY) as EventCategory,
+            studySubject: actionData.payload.studySubject as StudySubject | undefined,
             memberIds: mapNamesToIds(actionData.payload.attendeeNames || [], members),
             audioMessages: []
           }

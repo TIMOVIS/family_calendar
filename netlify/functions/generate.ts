@@ -13,15 +13,20 @@ export const addEventTool: FunctionDeclaration = {
       end: { type: Type.STRING, description: "End time in ISO format" },
       description: { type: Type.STRING, description: "Optional description" },
       location: { type: Type.STRING, description: "Optional location" },
-      category: { 
-        type: Type.STRING, 
-        description: "One of: Family, Work, School, Fun, Chore, Health, Other",
-        enum: ['Family', 'Work', 'School', 'Fun', 'Chore', 'Health', 'Other']
+      category: {
+        type: Type.STRING,
+        description: "One of: Family, Work, School, Study, Fun, Chore, Health, Other. Use 'Study' for 11+ exam preparation sessions.",
+        enum: ['Family', 'Work', 'School', 'Study', 'Fun', 'Chore', 'Health', 'Other']
       },
-      attendeeNames: { 
-        type: Type.ARRAY, 
-        items: { type: Type.STRING }, 
-        description: "List of family member names attending" 
+      studySubject: {
+        type: Type.STRING,
+        description: "For Study events only: one of Maths, English, Verbal Reasoning, Non-Verbal Reasoning, Creative Writing",
+        enum: ['Maths', 'English', 'Verbal Reasoning', 'Non-Verbal Reasoning', 'Creative Writing']
+      },
+      attendeeNames: {
+        type: Type.ARRAY,
+        items: { type: Type.STRING },
+        description: "List of family member names attending"
       }
     },
     required: ["title", "start", "end", "category"]
@@ -97,7 +102,7 @@ export const handler: Handler = async (event, context) => {
 
     const ai = new GoogleGenAI({ apiKey });
 
-    const { userMessage, fileContent, events, members } = JSON.parse(event.body || '{}');
+    const { userMessage, fileContent, events, members, studentProfiles } = JSON.parse(event.body || '{}');
 
     if (!userMessage && !fileContent) {
       return {
@@ -119,27 +124,46 @@ export const handler: Handler = async (event, context) => {
       attendees: e.memberIds.map((mid: string) => members.find((m: any) => m.id === mid)?.name || mid).join(', ')
     }));
 
+    // Build student context section if any students exist
+    const students = (studentProfiles || []).filter((s: any) => s.isStudent);
+    const studentContext = students.length > 0 ? `
+      11+ Exam Students:
+      ${students.map((s: any) => {
+        const daysToExam = s.examDate
+          ? Math.ceil((new Date(s.examDate).getTime() - Date.now()) / 86400000)
+          : null;
+        return `- ${s.name} (${s.yearGroup || 'Year unknown'}): Exam ${s.examDate ? `on ${s.examDate} (${daysToExam} days away)` : 'date not set'}. Target schools: ${(s.targetSchools || []).join(', ') || 'not set'}. Focus subjects: ${(s.studySubjects || []).join(', ') || 'all subjects'}.`;
+      }).join('\n      ')}
+    ` : '';
+
     let systemPrompt = `
-      You are fam.ly, a family calendar assistant.
+      You are fam.ly, a family calendar and 11+ exam preparation assistant.
       Current Date/Time: ${new Date().toLocaleString()}
-      
+
       Family Members: ${members.map((m: any) => m.name).join(', ')}
+      ${studentContext}
 
       Current Schedule:
       ${JSON.stringify(eventsContext, null, 2)}
-      
+
       Capabilities:
       1. Answer questions about the schedule.
       2. Handle specific search queries like "When is Mia's practice?" or "What's happening on Monday?".
       3. Identify events by attendee names, times (e.g., "at 10am"), or dates.
       4. ADD, EDIT, or DELETE events using the provided tools.
       5. Analyze uploaded files (like learning plans, schedules, etc.) and create calendar events from them.
-      
+      6. Create 11+ study plans: generate Study events covering Maths, English, Verbal Reasoning, Non-Verbal Reasoning, and Creative Writing.
+      7. Suggest study schedules based on the student's exam date, availability, and current workload.
+      8. Reschedule or adjust study sessions based on the student's progress and free time.
+
       Rules:
       - If adding an event, infer the end time (1 hour duration) if not specified.
       - If modifying/deleting, find the event ID from the Current Schedule JSON.
       - If the user asks for a specific person's schedule, list their events clearly.
-      - Be friendly, concise, and helpful.
+      - For 11+ study events, use category "Study" and set the appropriate studySubject.
+      - When generating a study plan, spread sessions across the week, mix subjects, and keep sessions 45-60 minutes for primary school children.
+      - UK 11+ exams typically test: Maths (arithmetic, problem-solving), English (comprehension, vocabulary), Verbal Reasoning (word patterns, logic), Non-Verbal Reasoning (patterns, shapes), and Creative Writing.
+      - Be friendly, encouraging, and age-appropriate when discussing study plans with children.
     `;
 
     // Add file analysis instructions if file content is provided
@@ -174,7 +198,7 @@ export const handler: Handler = async (event, context) => {
       5. After creating events, confirm what was created: "I've created X events from your file: [list of event titles]"
       
       File Content:
-      ${fileContent.substring(0, 50000)}${fileContent.length > 50000 ? '\n\n[File content truncated - first 50,000 characters shown]' : ''}
+      ${fileContent.substring(0, 20000)}${fileContent.length > 20000 ? '\n\n[File content truncated - first 20,000 characters shown. For large files, please split into smaller sections.]' : ''}
       `;
     }
 
@@ -186,15 +210,24 @@ export const handler: Handler = async (event, context) => {
         : 'Please analyze the uploaded file and help create calendar events.';
     }
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-preview',
-      contents: contentMessage,
-      config: {
-        systemInstruction: systemPrompt,
-        tools: [{ functionDeclarations: [addEventTool, updateEventTool, deleteEventTool] }],
-        temperature: 0.7,
-      },
+    // Set a timeout for the Gemini API call to prevent function timeout
+    const timeoutMs = 20000; // 20 seconds max for API call
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('Request timeout - the file may be too large. Please try splitting it into smaller sections.')), timeoutMs);
     });
+
+    const response = await Promise.race([
+      ai.models.generateContent({
+        model: 'gemini-3-pro-preview',
+        contents: contentMessage,
+        config: {
+          systemInstruction: systemPrompt,
+          tools: [{ functionDeclarations: [addEventTool, updateEventTool, deleteEventTool] }],
+          temperature: 0.7,
+        },
+      }),
+      timeoutPromise
+    ]) as any;
 
     let responseText = response.text || "";
     let action = undefined;
@@ -219,6 +252,7 @@ export const handler: Handler = async (event, context) => {
               description: args.description || '',
               location: args.location || '',
               category: args.category || 'Family',
+              studySubject: args.studySubject || undefined,
               attendeeNames: args.attendeeNames || []
             }
           });
@@ -284,12 +318,22 @@ export const handler: Handler = async (event, context) => {
 
   } catch (error: any) {
     console.error("Gemini API Error:", error);
+    
+    // Check if it's a timeout error
+    const isTimeout = error.message && (
+      error.message.includes('timeout') || 
+      error.message.includes('Request timeout')
+    );
+    
     return {
-      statusCode: 500,
+      statusCode: isTimeout ? 504 : 500,
       headers: {
         'Access-Control-Allow-Origin': '*',
       },
-      body: JSON.stringify({ error: error.message || 'Internal Server Error' }),
+      body: JSON.stringify({ 
+        error: error.message || 'Internal Server Error',
+        timeout: isTimeout 
+      }),
     };
   }
 };

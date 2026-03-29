@@ -270,9 +270,9 @@ const ChatAssistant: React.FC<ChatAssistantProps> = ({
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Check file size (max 5MB)
-    if (file.size > 5 * 1024 * 1024) {
-      alert('File size must be less than 5MB');
+    // Check file size (max 2MB to prevent timeout)
+    if (file.size > 2 * 1024 * 1024) {
+      alert('File size must be less than 2MB to prevent timeout. For larger files, please split into smaller sections.');
       return;
     }
 
@@ -292,6 +292,13 @@ const ChatAssistant: React.FC<ChatAssistantProps> = ({
       } else {
         // Try to read as text anyway
         content = await file.text();
+      }
+
+      // Limit content size to prevent timeout (20k characters max)
+      if (content.length > 20000) {
+        const truncated = content.substring(0, 20000);
+        alert(`File is large (${content.length} characters). Only the first 20,000 characters will be processed to prevent timeout. For best results, split large files into smaller sections.`);
+        content = truncated;
       }
 
       setUploadedFile({ name: fileName, content });

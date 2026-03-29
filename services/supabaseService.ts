@@ -1,5 +1,5 @@
 import { supabase, Family, Member, Event, EventAttendee, AudioMessage, ShoppingItem, WishListItem } from '../lib/supabase';
-import { CalendarEvent, FamilyMember, ShoppingItem as AppShoppingItem, WishListItem as AppWishListItem, EventCategory } from '../types';
+import { CalendarEvent, FamilyMember, ShoppingItem as AppShoppingItem, WishListItem as AppWishListItem, EventCategory, StudySubject } from '../types';
 
 // Authentication
 export const authService = {
@@ -212,6 +212,11 @@ export const familyService = {
       color: m.color,
       isAdmin: m.role === 'admin',
       points: m.points || 0,
+      isStudent: m.is_student || false,
+      examDate: m.exam_date || undefined,
+      targetSchools: m.target_schools || undefined,
+      yearGroup: m.year_group || undefined,
+      studySubjects: (m.study_subjects as StudySubject[]) || undefined,
     }));
   },
 
@@ -278,6 +283,27 @@ export const familyService = {
     const { error } = await supabase
       .from('members')
       .delete()
+      .eq('id', memberId);
+
+    if (error) throw error;
+  },
+
+  async updateStudentProfile(memberId: string, profile: {
+    isStudent?: boolean;
+    examDate?: string | null;
+    targetSchools?: string[] | null;
+    yearGroup?: string | null;
+    studySubjects?: string[] | null;
+  }) {
+    const { error } = await supabase
+      .from('members')
+      .update({
+        is_student: profile.isStudent,
+        exam_date: profile.examDate,
+        target_schools: profile.targetSchools,
+        year_group: profile.yearGroup,
+        study_subjects: profile.studySubjects,
+      })
       .eq('id', memberId);
 
     if (error) throw error;
@@ -365,6 +391,7 @@ export const eventService = {
         duration: am.duration || 0,
       })) || [],
       isCompleted: e.is_completed || false,
+      studySubject: e.study_subject || undefined,
     }));
   },
 
@@ -380,6 +407,7 @@ export const eventService = {
         location: event.location || null,
         category: event.category,
         created_by: createdBy,
+        study_subject: event.studySubject || null,
       })
       .select()
       .single();
@@ -435,6 +463,7 @@ export const eventService = {
     if (updates.location !== undefined) updateData.location = updates.location;
     if (updates.category !== undefined) updateData.category = updates.category;
     if (updates.isCompleted !== undefined) updateData.is_completed = updates.isCompleted;
+    if (updates.studySubject !== undefined) updateData.study_subject = updates.studySubject || null;
 
     console.log('Updating event:', eventId, 'with data:', updateData);
 
@@ -642,6 +671,7 @@ export const wishListService = {
       link: item.link || undefined,
       image: item.image || undefined,
       comments: item.comments || undefined,
+      rewardPoints: item.reward_points || undefined,
     }));
   },
 
@@ -657,6 +687,7 @@ export const wishListService = {
         link: item.link || null,
         image: item.image || null,
         comments: item.comments || null,
+        reward_points: item.rewardPoints || null,
       })
       .select()
       .single();
@@ -673,6 +704,7 @@ export const wishListService = {
     if (updates.link !== undefined) updateData.link = updates.link;
     if (updates.image !== undefined) updateData.image = updates.image;
     if (updates.comments !== undefined) updateData.comments = updates.comments;
+    if (updates.rewardPoints !== undefined) updateData.reward_points = updates.rewardPoints || null;
 
     const { error } = await supabase
       .from('wish_list_items')

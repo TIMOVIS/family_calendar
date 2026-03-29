@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { Gift, Plus, Star, Trash2, Heart, ExternalLink, ChevronRight, Image as ImageIcon, Link as LinkIcon, MessageSquare, ChevronDown, ChevronUp } from 'lucide-react';
+import { Gift, Plus, Star, Trash2, Heart, ExternalLink, ChevronRight, Image as ImageIcon, Link as LinkIcon, MessageSquare, ChevronDown, ChevronUp, Trophy, Lock, Unlock } from 'lucide-react';
 import { WishListItem, FamilyMember, ThemeColor } from '../types';
 import { generateId } from '../utils';
 
@@ -28,6 +28,8 @@ const WishListView: React.FC<WishListViewProps> = ({
   const [link, setLink] = useState('');
   const [comments, setComments] = useState('');
   const [image, setImage] = useState<string | undefined>(undefined);
+  const [isReward, setIsReward] = useState(false);
+  const [rewardPoints, setRewardPoints] = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -49,10 +51,11 @@ const WishListView: React.FC<WishListViewProps> = ({
       name: newItemName,
       occasion,
       priority,
-      ownerId: currentUser.id,
+      ownerId: activeTab, // allow adding for any member you can see
       link: link.trim() || undefined,
       comments: comments.trim() || undefined,
-      image
+      image,
+      rewardPoints: isReward && rewardPoints ? parseInt(rewardPoints, 10) : undefined,
     };
 
     onAddItem(item);
@@ -62,8 +65,9 @@ const WishListView: React.FC<WishListViewProps> = ({
     setLink('');
     setComments('');
     setImage(undefined);
+    setIsReward(false);
+    setRewardPoints('');
     setShowDetailsForm(false);
-    setActiveTab(currentUser.id);
   };
 
   const activeMember = members.find(m => m.id === activeTab);
@@ -109,7 +113,7 @@ const WishListView: React.FC<WishListViewProps> = ({
 
         {/* Content Area */}
         <div className="flex-1 p-8 overflow-y-auto">
-          {activeTab === currentUser.id && (
+          {(activeTab === currentUser.id || currentUser.isAdmin) && (
             <form onSubmit={handleAdd} className={`bg-${theme}-50 p-6 rounded-3xl border border-${theme}-100 mb-8 space-y-4`}>
               <div className="flex justify-between items-center mb-2">
                 <h3 className={`font-black text-${theme}-600 uppercase tracking-widest text-xs flex items-center gap-2`}>
@@ -161,13 +165,44 @@ const WishListView: React.FC<WishListViewProps> = ({
                   </div>
                   <div className="space-y-1">
                     <label className="text-[10px] font-bold text-slate-400 uppercase">Notes / Specs</label>
-                    <textarea 
+                    <textarea
                       value={comments}
                       onChange={e => setComments(e.target.value)}
                       placeholder="Size, color, store, etc..."
                       className="w-full p-3 bg-white rounded-lg border border-slate-100 text-xs h-20 resize-none"
                     />
                   </div>
+                  {/* Study Reward toggle — only show for student members */}
+                  {members.find(m => m.id === activeTab)?.isStudent && (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          id="isReward"
+                          checked={isReward}
+                          onChange={e => setIsReward(e.target.checked)}
+                          className="w-4 h-4 accent-amber-500 rounded"
+                        />
+                        <label htmlFor="isReward" className="text-xs font-bold text-amber-700 flex items-center gap-1 cursor-pointer">
+                          <Trophy className="w-3.5 h-3.5" /> Set as Study Reward
+                        </label>
+                      </div>
+                      {isReward && (
+                        <div className="flex items-center gap-2 pl-6">
+                          <Star className="w-3.5 h-3.5 text-amber-500" />
+                          <input
+                            type="number"
+                            min="1"
+                            value={rewardPoints}
+                            onChange={e => setRewardPoints(e.target.value)}
+                            placeholder="Points needed (e.g. 100)"
+                            className="flex-1 px-3 py-1.5 bg-white rounded-lg border border-amber-200 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-amber-300"
+                          />
+                          <span className="text-xs text-slate-400 font-medium">pts</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -232,8 +267,12 @@ const WishListView: React.FC<WishListViewProps> = ({
                       const isExpanded = expandedId === item.id;
                       const hasDetails = item.comments || item.link || item.image;
 
+                      const isRewardItem = item.rewardPoints != null;
+                      const ownerPoints = members.find(m => m.id === item.ownerId)?.points || 0;
+                      const rewardUnlocked = isRewardItem && ownerPoints >= (item.rewardPoints || 0);
+
                       return (
-                        <div key={item.id} className="group bg-white rounded-2xl border border-slate-100 shadow-sm hover:shadow-md transition-all overflow-hidden">
+                        <div key={item.id} className={`group bg-white rounded-2xl border shadow-sm hover:shadow-md transition-all overflow-hidden ${isRewardItem ? (rewardUnlocked ? 'border-amber-200' : 'border-slate-200') : 'border-slate-100'}`}>
                           <div className="p-4 flex items-center gap-4">
                             {item.image && (
                               <div className="w-16 h-16 rounded-xl overflow-hidden border border-slate-100 flex-shrink-0">
@@ -241,22 +280,28 @@ const WishListView: React.FC<WishListViewProps> = ({
                               </div>
                             )}
                             {!item.image && (
-                              <div className={`w-16 h-16 rounded-xl bg-slate-50 flex items-center justify-center text-${theme}-500 flex-shrink-0`}>
-                                <Star className={`w-6 h-6 ${item.priority === 'high' ? 'fill-current text-amber-500' : item.priority === 'medium' ? 'fill-current opacity-50' : ''}`} />
+                              <div className={`w-16 h-16 rounded-xl flex items-center justify-center text-xl flex-shrink-0 ${isRewardItem ? (rewardUnlocked ? 'bg-amber-50' : 'bg-slate-50') : `bg-slate-50 text-${theme}-500`}`}>
+                                {isRewardItem ? (rewardUnlocked ? '🎁' : '🔒') : <Star className={`w-6 h-6 ${item.priority === 'high' ? 'fill-current text-amber-500' : item.priority === 'medium' ? 'fill-current opacity-50' : ''}`} />}
                               </div>
                             )}
-                            
+
                             <div className="flex-1" onClick={() => hasDetails && setExpandedId(isExpanded ? null : item.id)}>
-                              <div className="flex items-center gap-2">
+                              <div className="flex items-center gap-2 flex-wrap">
                                 <h5 className="font-bold text-slate-800 text-lg">{item.name}</h5>
+                                {isRewardItem && (
+                                  <span className={`flex items-center gap-1 text-[10px] font-black px-2 py-0.5 rounded-full border ${rewardUnlocked ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-slate-50 text-slate-500 border-slate-200'}`}>
+                                    {rewardUnlocked ? <Unlock className="w-3 h-3" /> : <Lock className="w-3 h-3" />}
+                                    {item.rewardPoints} pts
+                                  </span>
+                                )}
                                 {hasDetails && (
-                                  <div className="flex gap-1 ml-auto sm:ml-0">
+                                  <div className="flex gap-1">
                                     {item.comments && <MessageSquare className="w-3.5 h-3.5 text-slate-300" />}
                                     {item.link && <LinkIcon className="w-3.5 h-3.5 text-slate-300" />}
                                   </div>
                                 )}
                               </div>
-                              <div className="flex gap-2 mt-1">
+                              <div className="flex gap-2 mt-1 flex-wrap">
                                 <span className={`text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full ${
                                   item.priority === 'high' ? 'bg-rose-100 text-rose-600' :
                                   item.priority === 'medium' ? 'bg-amber-100 text-amber-600' :
@@ -264,6 +309,20 @@ const WishListView: React.FC<WishListViewProps> = ({
                                 }`}>
                                   {item.priority} priority
                                 </span>
+                                {isRewardItem && !rewardUnlocked && (
+                                  <div className="flex items-center gap-1.5">
+                                    <div className="w-20 bg-slate-100 rounded-full h-1.5 overflow-hidden">
+                                      <div
+                                        className="h-full bg-amber-400 rounded-full"
+                                        style={{ width: `${Math.min(100, Math.round((ownerPoints / (item.rewardPoints || 1)) * 100))}%` }}
+                                      />
+                                    </div>
+                                    <span className="text-[9px] text-slate-400 font-bold">{ownerPoints}/{item.rewardPoints}</span>
+                                  </div>
+                                )}
+                                {isRewardItem && rewardUnlocked && (
+                                  <span className="text-[9px] font-black text-amber-600 uppercase tracking-wider">Reward unlocked! 🎉</span>
+                                )}
                               </div>
                             </div>
 
@@ -273,8 +332,8 @@ const WishListView: React.FC<WishListViewProps> = ({
                                   {isExpanded ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
                                 </button>
                               )}
-                              {activeTab === currentUser.id && (
-                                <button 
+                              {(activeTab === currentUser.id || currentUser.isAdmin) && (
+                                <button
                                   onClick={() => onDeleteItem(item.id)}
                                   className="p-2 text-slate-300 hover:text-red-500 transition-all"
                                 >

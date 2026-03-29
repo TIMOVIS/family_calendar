@@ -73,6 +73,7 @@ export const CATEGORY_COLORS: Record<EventCategory, string> = {
   [EventCategory.FAMILY]: 'bg-purple-100 text-purple-800 border-purple-200',
   [EventCategory.WORK]: 'bg-slate-100 text-slate-800 border-slate-200',
   [EventCategory.SCHOOL]: 'bg-blue-100 text-blue-800 border-blue-200',
+  [EventCategory.STUDY]: 'bg-emerald-100 text-emerald-800 border-emerald-200',
   [EventCategory.FUN]: 'bg-yellow-100 text-yellow-800 border-yellow-200',
   [EventCategory.CHORE]: 'bg-orange-100 text-orange-800 border-orange-200',
   [EventCategory.HEALTH]: 'bg-rose-100 text-rose-800 border-rose-200',
