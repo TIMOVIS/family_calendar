@@ -208,28 +208,46 @@ const StudyDashboard: React.FC<StudyDashboardProps> = ({
   };
 
   const handleSaveStudentProfile = async (memberId: string, updates: Partial<FamilyMember>) => {
-    await familyService.updateStudentProfile(memberId, {
-      isStudent: updates.isStudent,
-      examDate: updates.examDate || null,
-      targetSchools: updates.targetSchools || null,
-      yearGroup: updates.yearGroup || null,
-      studySubjects: updates.studySubjects || null,
-    });
-    // Refresh members locally
-    const updatedMembers = members.map(m =>
-      m.id === memberId ? { ...m, ...updates } : m
-    );
-    onMembersUpdated(updatedMembers);
-    setEditingStudentId(null);
+    try {
+      await familyService.updateStudentProfile(memberId, {
+        isStudent: updates.isStudent,
+        examDate: updates.examDate || null,
+        targetSchools: updates.targetSchools || null,
+        yearGroup: updates.yearGroup || null,
+        studySubjects: updates.studySubjects || null,
+      });
+      // Refresh members locally
+      const updatedMembers = members.map(m =>
+        m.id === memberId ? { ...m, ...updates } : m
+      );
+      onMembersUpdated(updatedMembers);
+      setEditingStudentId(null);
+    } catch (err: any) {
+      const msg = err?.message || String(err);
+      if (msg.includes('column') || msg.includes('does not exist')) {
+        alert('The 11+ database migration has not been run yet.\n\nPlease ask your admin to run the SQL migration in Supabase:\nsupabase/migrations/11plus_features.sql');
+      } else {
+        alert('Failed to save student profile. Please try again.');
+      }
+    }
   };
 
   const handleMarkAsStudent = async (memberId: string) => {
-    await familyService.updateStudentProfile(memberId, { isStudent: true });
-    const updatedMembers = members.map(m =>
-      m.id === memberId ? { ...m, isStudent: true } : m
-    );
-    onMembersUpdated(updatedMembers);
-    setEditingStudentId(memberId);
+    try {
+      await familyService.updateStudentProfile(memberId, { isStudent: true });
+      const updatedMembers = members.map(m =>
+        m.id === memberId ? { ...m, isStudent: true } : m
+      );
+      onMembersUpdated(updatedMembers);
+      setEditingStudentId(memberId);
+    } catch (err: any) {
+      const msg = err?.message || String(err);
+      if (msg.includes('column') || msg.includes('does not exist')) {
+        alert('The 11+ database migration has not been run yet.\n\nPlease ask your admin to run the SQL migration in Supabase:\nsupabase/migrations/11plus_features.sql');
+      } else {
+        alert('Failed to set up student profile. Please try again.');
+      }
+    }
   };
 
   const nonStudentChildren = members.filter(m => !m.isStudent && !m.isAdmin);
