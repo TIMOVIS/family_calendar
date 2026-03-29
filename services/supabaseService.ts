@@ -295,18 +295,23 @@ export const familyService = {
     yearGroup?: string | null;
     studySubjects?: string[] | null;
   }) {
+    // Only include fields that were explicitly passed — never send undefined
+    const patch: Record<string, any> = {};
+    if (profile.isStudent !== undefined) patch.is_student = profile.isStudent;
+    if (profile.examDate !== undefined) patch.exam_date = profile.examDate;
+    if (profile.targetSchools !== undefined) patch.target_schools = profile.targetSchools;
+    if (profile.yearGroup !== undefined) patch.year_group = profile.yearGroup;
+    if (profile.studySubjects !== undefined) patch.study_subjects = profile.studySubjects;
+
     const { error } = await supabase
       .from('members')
-      .update({
-        is_student: profile.isStudent,
-        exam_date: profile.examDate,
-        target_schools: profile.targetSchools,
-        year_group: profile.yearGroup,
-        study_subjects: profile.studySubjects,
-      })
+      .update(patch)
       .eq('id', memberId);
 
-    if (error) throw error;
+    if (error) {
+      console.error('updateStudentProfile error:', JSON.stringify(error));
+      throw error;
+    }
   },
 
   async getFamily(familyId: string) {

@@ -223,11 +223,12 @@ const StudyDashboard: React.FC<StudyDashboardProps> = ({
       onMembersUpdated(updatedMembers);
       setEditingStudentId(null);
     } catch (err: any) {
-      const msg = err?.message || String(err);
-      if (msg.includes('column') || msg.includes('does not exist')) {
-        alert('The 11+ database migration has not been run yet.\n\nPlease ask your admin to run the SQL migration in Supabase:\nsupabase/migrations/11plus_features.sql');
+      const msg = (err?.message || String(err)).toLowerCase();
+      const isMigrationError = msg.includes('column') || msg.includes('does not exist') || msg.includes('schema cache') || err?.code === 'PGRST204';
+      if (isMigrationError) {
+        alert('The 11+ database migration has not been run yet.\n\nPlease run the SQL in Supabase:\nsupabase/migrations/11plus_features.sql\n\nThen reload the schema cache:\nProject Settings → API → Reload');
       } else {
-        alert('Failed to save student profile. Please try again.');
+        alert(`Failed to save student profile: ${err?.message || err}`);
       }
     }
   };
@@ -241,11 +242,12 @@ const StudyDashboard: React.FC<StudyDashboardProps> = ({
       onMembersUpdated(updatedMembers);
       setEditingStudentId(memberId);
     } catch (err: any) {
-      const msg = err?.message || String(err);
-      if (msg.includes('column') || msg.includes('does not exist')) {
-        alert('The 11+ database migration has not been run yet.\n\nPlease ask your admin to run the SQL migration in Supabase:\nsupabase/migrations/11plus_features.sql');
+      const msg = (err?.message || String(err)).toLowerCase();
+      const isMigrationError = msg.includes('column') || msg.includes('does not exist') || msg.includes('schema cache') || err?.code === 'PGRST204';
+      if (isMigrationError) {
+        alert('The 11+ database migration has not been run yet.\n\nPlease run the SQL in Supabase:\nsupabase/migrations/11plus_features.sql\n\nThen reload the schema cache:\nProject Settings → API → Reload');
       } else {
-        alert('Failed to set up student profile. Please try again.');
+        alert(`Failed to set up student profile: ${err?.message || err}`);
       }
     }
   };
